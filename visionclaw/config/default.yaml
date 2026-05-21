@@ -1,0 +1,66 @@
+machine:
+  gpu: "RTX 4050 Laptop"
+  vram_gb: 6
+  safe_mode: true
+
+defaults:
+  mode: "balanced"
+  max_resolution: 768
+  fps: 0.5
+  max_frames: 60
+  segmentation_fps: 0.25
+  tracking_fps: 0.5
+  max_video_length_minutes: 20
+  max_concurrent_jobs: 1
+
+models:
+  vlm:
+    provider: "lmstudio"
+    model: "google/gemma-4-e2b"
+    base_url: "http://localhost:1234/v1"
+    max_loaded: 1
+    temperature: 0.1
+    max_tokens: 512
+
+  segmentation:
+    provider: "sam"
+    model: "sam-2.1"
+    fallback_model: "mobile-sam"
+    load_on_demand: true
+
+  ocr:
+    enabled: false
+    provider: "paddleocr"
+
+gpu_policy:
+  unload_after_job: true
+  min_free_vram_gb: 1.5
+  fallback_resolution: 512
+  allow_parallel_gpu_models: false
+
+cache:
+  enabled: true
+  directory: "./runs"
+  reuse_existing: true
+
+modes:
+  fast:
+    resolution: 512
+    fps: 0.25
+    max_frames: 30
+    segmentation: false
+    ocr: false
+
+  balanced:
+    resolution: 768
+    fps: 0.5
+    max_frames: 60
+    segmentation: "on_demand"
+    ocr: false
+
+  detailed:
+    resolution: 1024
+    fps: 1.0
+    max_frames: 180
+    segmentation: true
+    ocr: true

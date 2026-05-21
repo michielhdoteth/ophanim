@@ -1,0 +1,2 @@
+[console_scripts]
+visionclaw = visionclaw.__main__:main

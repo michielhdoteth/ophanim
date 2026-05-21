@@ -1,0 +1,21 @@
+{
+  "project": "VisionClaw",
+  "plan": "PLAN-current.md",
+  "tasks": [
+    {"id": "TASK-001", "name": "Project skeleton, deps, config", "status": "pending", "blockedBy": []},
+    {"id": "TASK-002", "name": "Core video probe + frame extraction", "status": "pending", "blockedBy": ["TASK-001"]},
+    {"id": "TASK-003", "name": "Smart frame sampling + scene detection", "status": "pending", "blockedBy": ["TASK-002"]},
+    {"id": "TASK-004", "name": "LM Studio VLM provider", "status": "pending", "blockedBy": ["TASK-001"]},
+    {"id": "TASK-005", "name": "CLI entry point + probe command", "status": "pending", "blockedBy": ["TASK-002", "TASK-004"]},
+    {"id": "TASK-006", "name": "observe command", "status": "pending", "blockedBy": ["TASK-002", "TASK-003", "TASK-004"]},
+    {"id": "TASK-007", "name": "ask command", "status": "pending", "blockedBy": ["TASK-002", "TASK-003", "TASK-004"]},
+    {"id": "TASK-008", "name": "segment + track commands with SAM", "status": "pending", "blockedBy": ["TASK-002", "TASK-003", "TASK-004"]},
+    {"id": "TASK-009", "name": "GPU memory manager", "status": "pending", "blockedBy": ["TASK-001"]},
+    {"id": "TASK-010", "name": "Status command + run caching + config", "status": "pending", "blockedBy": ["TASK-009"]},
+    {"id": "TASK-011", "name": "Error handling system", "status": "pending", "blockedBy": ["TASK-005", "TASK-006"]},
+    {"id": "TASK-012", "name": "Memory output, README, examples", "status": "pending", "blockedBy": ["TASK-006", "TASK-010"]}
+  ],
+  "current_task": null,
+  "completed_tasks": [],
+  "phase": "build"
+}
