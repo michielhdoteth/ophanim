@@ -9,13 +9,14 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.table import Table
-from rich.progress import Progress, BarColumn, TextColumn
+from rich.progress import Progress, BarColumn, TextColumn, SpinnerColumn
 
 from ophanim.core.video import probe, extract_frames, estimate_processing_cost
 from ophanim.core.image import downscale, encode_base64, save_frame, load_image
 from ophanim.core.sampling import smart_sample
 from ophanim.core.gpu import auto_downgrade_mode, log_vram
 from ophanim.providers.lmstudio import LmStudioProvider
+from ophanim.providers.whisper import WhisperProvider, Transcript
 from ophanim.storage.cache import RunCache
 from ophanim.storage.config import load_config, get_mode_config
 from ophanim.models import (
@@ -23,6 +24,12 @@ from ophanim.models import (
 )
 
 console = Console()
+
+
+def _fmt_time(seconds: float) -> str:
+    """Format seconds to MM:SS."""
+    m, s = divmod(int(seconds), 60)
+    return f"{m:02d}:{s:02d}"
 
 
 def observe_cmd(
@@ -33,6 +40,7 @@ def observe_cmd(
     max_frames: int = typer.Option(None, "--max-frames", help="Maximum frames to process"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
     save_memory: bool = typer.Option(False, "--save-memory", help="Save observation as markdown memory"),
+    transcribe_audio: bool = typer.Option(False, "--transcribe", "-t", help="Transcribe audio speech to text"),
     force: bool = typer.Option(False, "--force", "-f", help="Force reprocess (ignore cache)"),
 ):
     """Analyze a video or image and return observations."""
@@ -66,7 +74,7 @@ def observe_cmd(
     if is_image:
         _handle_image(input_path, question, json_output, config, actual_resolution)
     else:
-        _handle_video(input_path, question, json_output, save_memory, force,
+        _handle_video(input_path, question, json_output, save_memory, transcribe_audio, force,
                       config, mode, actual_fps, actual_max_frames, actual_resolution)
 
 
@@ -108,7 +116,8 @@ def _handle_image(path: Path, question: Optional[str], json_output: bool,
 
 
 def _handle_video(path: Path, question: Optional[str], json_output: bool,
-                  save_memory: bool, force: bool, config: dict, mode: str,
+                  save_memory: bool, transcribe_audio: bool, force: bool,
+                  config: dict, mode: str,
                   fps: float, max_frames: int, resolution: int):
     """Process a video file."""
     # Check cache
@@ -218,6 +227,34 @@ def _handle_video(path: Path, question: Optional[str], json_output: bool,
 
     provider.close()
 
+    # Transcribe audio if requested
+    transcript = None
+    if transcribe_audio:
+        console.print("[dim]Transcribing audio with Whisper (CPU)...[/dim]")
+        whisper = WhisperProvider()
+        import time as _time
+        transcript = whisper.transcribe(str(path))
+
+        if transcript and transcript.segments:
+            console.print(f"[dim]Transcribed {len(transcript.segments)} speech segments[/dim]")
+
+    # Merge transcript segments into timeline (interleaved by timestamp)
+    if transcript and transcript.segments:
+        audio_entries = []
+        for seg in transcript.segments:
+            ts = _fmt_time(seg.start)
+            audio_entries.append(TimelineEntry(
+                time_seconds=seg.start,
+                timestamp=ts,
+                observation=f"[SPEECH] {seg.text}",
+                frame_path=None,
+            ))
+
+        # Interleave visual + audio entries by timestamp
+        all_entries = timeline + audio_entries
+        all_entries.sort(key=lambda e: e.time_seconds)
+        timeline = all_entries
+
     # Build result
     result = ObserveResult(
         summary=summary,
@@ -237,9 +274,14 @@ def _handle_video(path: Path, question: Optional[str], json_output: bool,
         timeline_md += f"- **{entry.timestamp}** - {entry.observation}\n"
     cache.save_text(run_dir, "timeline.md", timeline_md)
 
+    # Save transcript if available
+    if transcript and transcript.segments:
+        transcript_text = "\n".join(f"[{_fmt_time(s.start)}] {s.text}" for s in transcript.segments)
+        cache.save_text(run_dir, "transcript.txt", transcript_text)
+
     # Save memory markdown if requested
     if save_memory:
-        _save_memory_md(path, result, config)
+        _save_memory_md(path, result, config, transcript)
 
     log_vram("observation_complete")
 
@@ -255,10 +297,13 @@ def _generate_summary(provider, timeline: list) -> str:
     if not timeline:
         return "No observations recorded."
 
-    # Build timeline text (limit to 15 entries)
+    # Build timeline text (truncated to fit model context limit)
     timeline_text = "\n".join(
-        f"{t.timestamp}: {t.observation}" for t in timeline[:15]
+        f"{t.timestamp}: {t.observation}" for t in timeline
     )
+    # Truncate to ~700 chars to avoid empty responses from LM Studio
+    if len(timeline_text) > 700:
+        timeline_text = timeline_text[:700] + "..."
 
     prompt = (
         "Compress this video timeline into 2-3 concise sentences describing "
@@ -267,10 +312,10 @@ def _generate_summary(provider, timeline: list) -> str:
     )
 
     try:
-        import numpy as np
-        dummy = np.zeros((10, 10, 3), dtype=np.uint8)
-        result = provider.describe_image(dummy, prompt)
-        return result.strip()
+        result = provider.query_text(prompt)
+        if result and not result.startswith("[VLM"):
+            return result.strip()
+        return _build_timeline_summary_fallback(timeline)
     except Exception:
         return _build_timeline_summary_fallback(timeline)
 
@@ -287,18 +332,22 @@ def _build_timeline_summary_fallback(timeline: list) -> str:
 
 def _extract_entities(provider, timeline_text: str) -> list[str]:
     """Use VLM to extract real entities from timeline descriptions."""
+    # Truncate to ~700 chars to fit model context limit
+    if len(timeline_text) > 700:
+        timeline_text = timeline_text[:700] + "..."
+
     prompt = (
         "From these video observations, extract a comma-separated list of the "
         "main objects, people, and entities visible. Return ONLY the comma-separated list, no explanation.\n\n"
         f"{timeline_text}"
     )
     try:
-        import numpy as np
-        dummy = np.zeros((10, 10, 3), dtype=np.uint8)
-        result = provider.describe_image(dummy, prompt)
-        # Parse comma-separated list
-        entities = [e.strip().lower() for e in result.split(",") if e.strip()]
-        return entities[:20]  # Cap at 20
+        result = provider.query_text(prompt)
+        if result and not result.startswith("[VLM"):
+            # Parse comma-separated list
+            entities = [e.strip().lower() for e in result.split(",") if e.strip()]
+            return entities[:20]  # Cap at 20
+        return []
     except Exception:
         return []
 
@@ -350,7 +399,8 @@ def _display_observation(data: dict):
         console.print(f"\n[dim]Artifacts: {data['artifacts_dir']}[/dim]")
 
 
-def _save_memory_md(path: Path, result: ObserveResult, config: dict):
+def _save_memory_md(path: Path, result: ObserveResult, config: dict,
+                    transcript: Optional[Transcript] = None):
     """Save observation as markdown memory file."""
     from datetime import date
     today = date.today().isoformat()
@@ -381,6 +431,15 @@ def _save_memory_md(path: Path, result: ObserveResult, config: dict):
         lines.extend(["", "## Entities", ""])
         for entity in result.entities:
             lines.append(f"- {entity}")
+
+    # Add transcript section (first 30 segments)
+    if transcript and transcript.segments:
+        lines.extend(["", "## Transcript", ""])
+        for seg in transcript.segments[:30]:
+            ts = _fmt_time(seg.start)
+            lines.append(f"- **{ts}** {seg.text}")
+        if len(transcript.segments) > 30:
+            lines.append(f"- *... and {len(transcript.segments) - 30} more segments*")
 
     lines.extend(["", "## Artifacts", "", f"- Frames: `{result.artifacts_dir}/frames/`"])
 

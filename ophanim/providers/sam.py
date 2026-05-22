@@ -265,3 +265,103 @@ class SamProvider:
     @property
     def is_loaded(self) -> bool:
         return self._loaded
+
+
+class Sam3Provider:
+    """
+    SAM 3 segmentation provider using the official Meta SAM 3 repo.
+
+    SAM 3 uses text prompts for segmentation.
+    Requires: Python 3.12+, torch 2.7+, and the sam3 package installed.
+    Falls back to SamProvider if SAM 3 is not available.
+
+    Note: SAM 3 checkpoint requires Hugging Face access at:
+    https://huggingface.co/facebook/sam3
+    """
+
+    def __init__(self, config: dict):
+        self.config = config
+        self.model = None
+        self.processor = None
+        self._loaded = False
+
+    def segment(self, image: np.ndarray, prompt: str) -> list[dict]:
+        """
+        Segment using SAM 3 with text prompt.
+
+        Args:
+            image: RGB numpy array (H, W, 3)
+            prompt: Text description of object to segment
+
+        Returns:
+            List of dicts: {mask, bbox, score}
+        """
+        self._ensure_loaded()
+
+        # Convert numpy to PIL
+        from PIL import Image
+        pil_image = Image.fromarray(image)
+
+        inference_state = self.processor.set_image(pil_image)
+        output = self.processor.set_text_prompt(state=inference_state, prompt=prompt)
+
+        masks = output.get("masks", [])
+        boxes = output.get("boxes", [])
+        scores = output.get("scores", [])
+
+        results = []
+        for i in range(len(masks)):
+            mask = masks[i].cpu().numpy() if hasattr(masks[i], "cpu") else masks[i]
+            bbox = boxes[i].tolist() if hasattr(boxes[i], "tolist") else boxes[i]
+            score = float(scores[i]) if hasattr(scores[i], "__float__") else float(scores[i])
+
+            results.append({
+                "mask": mask,
+                "bbox": bbox,
+                "score": score,
+            })
+
+        return results
+
+    def _ensure_loaded(self):
+        """Load SAM 3 model if not already loaded."""
+        if self._loaded:
+            return
+
+        from ophanim.core.gpu import unload_model as gpu_unload, log_vram as gpu_log_vram
+
+        gpu_log_vram("before_sam3_load")
+
+        # Clear CUDA cache before loading
+        gpu_unload()
+
+        try:
+            from sam3.model_builder import build_sam3_image_model
+            from sam3.model.sam3_image_processor import Sam3Processor
+
+            self.model = build_sam3_image_model()
+            self.processor = Sam3Processor(self.model)
+            self._loaded = True
+
+            gpu_log_vram("after_sam3_load")
+            logger.info("SAM 3 loaded successfully")
+        except ImportError as e:
+            logger.error(f"Failed to load SAM 3: {e}")
+            logger.error("Install with: pip install sam3")
+            raise
+        except Exception as e:
+            logger.error(f"Error loading SAM 3 model: {e}")
+            raise
+
+    def unload(self):
+        """Unload SAM 3 model from GPU memory."""
+        self.model = None
+        self.processor = None
+        self._loaded = False
+        from ophanim.core.gpu import unload_model
+        unload_model()
+        logger.info("SAM 3 unloaded from GPU")
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._loaded

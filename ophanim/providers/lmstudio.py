@@ -135,6 +135,32 @@ class LmStudioProvider(VlmProvider):
 
         return "\n".join(results)
 
+    def query_text(self, prompt: str) -> str:
+        """Send a text-only query to LM Studio (no image).
+
+        LM Studio's chat API supports text-only messages.
+        This avoids sending a dummy image for summarization tasks.
+        """
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+        }
+
+        try:
+            response = self._client.post(
+                f"{self.base_url}/chat/completions",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            return f"[VLM text query failed: {e}]"
+
     def check_health(self) -> bool:
         """Check if LM Studio API is responsive.
 

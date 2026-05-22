@@ -14,7 +14,9 @@ class TestCliSmoke:
     
     def test_no_args_shows_help(self):
         result = runner.invoke(app, [])
-        assert result.exit_code == 0
+        # Typer may exit 0 (help shown) or 2 (error) depending on version
+        assert result.exit_code in (0, 2)
+        assert "Usage" in result.output
     
     def test_probe_nonexistent(self):
         result = runner.invoke(app, ["probe", "nonexistent.mp4"])
