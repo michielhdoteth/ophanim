@@ -1,117 +1,114 @@
 # Ophanim
 
-A local visual perception layer for agents. Process videos and images using LM Studio (Gemma 4 E2B) for vision-language inference, with optional SAM segmentation.
+**Local vision CLI for agents.**
 
-## Requirements
+Ophanim is a local CLI that gives shell-capable agents basic visual perception: video inspection, frame sampling, visual Q&A, transcription, segmentation, tracking, and compact JSON/Markdown outputs.
 
-- Python 3.9+
-- NVIDIA GPU with 6GB+ VRAM (RTX 4050, etc.)
-- [LM Studio](https://lmstudio.ai/) with a vision model loaded (e.g., Gemma 4 E2B)
-- CUDA-capable PyTorch (included with install)
-
-## Installation
-
-```bash
-# From project root
-pip install -e .
-
-# Optional: SAM segmentation support
-pip install transformers ultralytics
-```
-
-## Quick Start
-
-1. **Start LM Studio** and load `google/gemma-4-e2b` (or any vision model)
-2. **Verify LM Studio is running** at `http://localhost:1234/v1`
-
-```bash
-# Check GPU and system status
-ophanim status
-
-# Probe a video for metadata
-ophanim probe video.mp4
-
-# Observe a video (smart sampling + VLM analysis)
-ophanim observe video.mp4
-
-# Ask a specific question
-ophanim ask video.mp4 "Is there a red car?"
-
-# Segment an object (requires SAM deps)
-ophanim segment video.mp4 "person" --start 5 --end 30
-
-# Track an object across frames
-ophanim track video.mp4 "car"
-```
+I built it for my own local agent workflows and open-sourced it in case it helps other people building local agents.
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `probe` | Extract video metadata without full processing |
-| `observe` | Analyze video/image and return timeline + summary |
-| `ask` | Ask a specific question about video content |
-| `segment` | Segment objects in video by text prompt |
-| `track` | Track object positions across frames |
-| `status` | Show GPU state, VRAM, cached runs, config |
-| `memory` | List/view/delete saved observations |
+```
+ophanim probe video.mp4         # Video metadata
+ophanim observe video.mp4        # Visual analysis + timeline
+ophanim ask video.mp4 "..."      # Targeted visual question
+ophanim segment video.mp4 "..."  # Text-prompt segmentation
+ophanim track video.mp4 "..."    # Object tracking
+ophanim transcribe video.mp4     # Speech-to-text
+ophanim status                   # GPU, VRAM, cache
+ophanim memory list              # Saved observations
+```
+
+## Why CLI-first?
+
+Most local agents can already call shell commands. Ophanim uses that path directly:
+
+```bash
+ophanim observe ./video.mp4 --json
+ophanim ask ./video.mp4 "What happens after the person enters?" --json
+ophanim transcribe ./video.mp4 --json
+```
+
+No server required. No cloud upload. No MCP ceremony. Just executable capability for shell-capable agents.
+
+MCP may be added later as a thin adapter, but the CLI is the core interface.
+
+## Requirements
+
+- **GPU:** NVIDIA with 6GB+ VRAM (RTX 4050, 3060, etc.)
+- **Python:** 3.12+
+- **LM Studio** with a vision model loaded (e.g., `google/gemma-4-e2b`)
+- **ffmpeg** (for audio extraction)
+
+## Quick Start
+
+```bash
+pip install -e .
+pip install faster-whisper    # Audio transcription
+pip install ultralytics       # SAM segmentation (optional)
+
+# Start LM Studio, load vision model, start API server (default: localhost:1234/v1)
+
+ophanim status                 # Verify everything
+ophanim probe video.mp4        # Inspect video
+ophanim observe video.mp4 --json    # Analyze
+ophanim observe video.mp4 --transcribe --json  # With audio
+```
 
 ## Configuration
 
-Config file: `ophanim/config/default.yaml`
-
-Override with `OPHANIM_CONFIG` environment variable:
+Default: `ophanim/config/default.yaml`. Override:
 
 ```bash
-set OPHANIM_CONFIG=path/to/your/config.yaml
-ophanim status
+set OPHANIM_CONFIG=my_config.yaml
 ```
 
 ### Processing Modes
 
 | Mode | Resolution | FPS | Max Frames | Use Case |
 |------|-----------|-----|-----------|----------|
-| `fast` | 512px | 0.25 | 30 | Quick inspection, long videos |
-| `balanced` (default) | 768px | 0.5 | 60 | Most agent workflows |
-| `detailed` | 1024px | 1.0 | 180 | High-value analysis, short clips |
-
-## Output Options
-
-- **Human-readable**: Rich-formatted terminal output (default)
-- **Machine-readable**: `--json` flag on all commands
-- **Persistent memory**: `--save-memory` on observe saves to `memory/videos/`
-
-## Caching
-
-Results are cached in `runs/` directory. Cached results are reused automatically. Use `--force` to reprocess.
-
-```bash
-ophanim observe video.mp4          # Uses cache
-ophanim observe video.mp4 --force  # Reprocesses
-```
-
-## Error Handling
-
-All commands return recoverable errors with suggested retry parameters:
-
-```json
-{
-  "error": "GPU_OUT_OF_MEMORY",
-  "message": "...",
-  "suggested_retry": {"mode": "fast", "max_resolution": 512}
-}
-```
+| `fast` | 512px | 0.25 | 30 | Quick inspection |
+| `balanced` (default) | 768px | 0.5 | 60 | Most workflows |
+| `detailed` | 1024px | 1.0 | 180 | High-value clips |
 
 ## Architecture
 
 ```
 ophanim/
-  cli/          # Typer CLI commands
-  core/         # Video processing, sampling, GPU management
-  providers/    # LM Studio VLM, SAM segmentation
-  storage/      # Config loading, run caching
-  config/       # YAML configuration
+  cli/          # Typer CLI (8 commands)
+  core/         # Video, GPU, sampling, audio, errors
+  providers/    # LM Studio VLM, SAM, Whisper
+  storage/      # Config, cache
+  tests/        # 140+ tests
+  config/       # default.yaml
 ```
+
+## Status
+
+Ophanim is a personal tool I built for my own local agent workflows. It is open source because other builders may find it useful, but it is not a heavily maintained product.
+
+- CLI: available
+- Video/image processing: available
+- Transcription (faster-whisper): available
+- SAM segmentation: on-demand
+- Content workflows: available
+- MCP adapter: planned
+- Agent memory tools: planned
+
+## Roadmap
+
+- [ ] Better GPU-safe scheduling
+- [ ] Scene-change guided frame sampling
+- [ ] JSON schema stabilization
+- [ ] OpenClaw/opencode skill examples
+- [ ] Squish memory export
+- [ ] Optional MCP adapter
+
+## Maintenance
+
+This repo is released as-is. I may update it when I need new functionality for my own agent stack. Contributions are welcome, but there is no guaranteed support timeline.
+
+If it works for your setup, great. If not, fork it, adapt it, or open an issue with enough detail to reproduce the problem.
 
 ## License
 
