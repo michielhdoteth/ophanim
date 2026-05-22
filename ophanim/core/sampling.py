@@ -163,3 +163,127 @@ def find_keyframes_for_question(
     # Evenly spaced
     step = max(1, len(frames) // min(max_keyframes, len(frames)))
     return [frames[i] for i in range(0, len(frames), step)][:max_keyframes]
+
+
+def adaptive_sample(
+    path: str,
+    max_frames: int = 60,
+    max_resolution: int = 768,
+    dense_window: float = 3.0,  # seconds to sample densely around scene changes
+    dense_fps: float = 2.0,     # FPS during dense windows
+    base_fps: float = 0.25,     # FPS during static segments
+    scene_threshold: float = 30.0,
+) -> list[dict]:
+    """
+    Scene-adaptive frame sampling.
+
+    Strategy:
+    1. Do a coarse pass to detect all scene changes
+    2. Sample densely (high FPS) around each scene change
+    3. Sample sparsely (low FPS) during static segments
+    4. Ensure total frames <= max_frames
+
+    This gives more coverage near scene transitions where content
+    actually changes, while skipping redundant frames during
+    static talking-head or single-slide segments.
+    """
+    from ophanim.core.video import extract_frames, probe
+    from ophanim.core.sampling import detect_scenes
+
+    # Handle nonexistent videos gracefully
+    try:
+        meta = probe(path)
+    except FileNotFoundError:
+        return []
+
+    duration = meta["duration_seconds"]
+    video_fps = meta["fps"]
+
+    # Step 2: Extract a coarse sample for scene detection
+    # Use 1fps for scene detection (covers full video)
+    coarse_frames = extract_frames(path, fps=1, max_frames=300, max_resolution=max_resolution)
+
+    if not coarse_frames:
+        return []
+
+    # Step 3: Detect scene changes in coarse sample
+    scene_indices = detect_scenes(coarse_frames, threshold=scene_threshold)
+    scene_times = [coarse_frames[i]["timestamp"] for i in scene_indices]
+
+    # Step 4: Build list of time ranges to sample
+    # Each range is (start_time, end_time, fps)
+    ranges = []
+
+    if not scene_times:
+        # No scene changes -- just sample evenly
+        ranges.append((0.0, duration, base_fps))
+    else:
+        # Sort scene times and build ranges with dense windows
+        all_boundaries = [0.0] + scene_times + [duration]
+
+        for i in range(len(all_boundaries) - 1):
+            seg_start = all_boundaries[i]
+            seg_end = all_boundaries[i + 1]
+            seg_len = seg_end - seg_start
+
+            # Check if this segment contains a scene change
+            is_dense = any(
+                abs(st - (seg_start + seg_len / 2)) < dense_window / 2
+                for st in scene_times
+            )
+
+            if is_dense or seg_len < dense_window * 2:
+                # Dense sampling for the whole short segment
+                ranges.append((seg_start, seg_end, max(base_fps, dense_fps)))
+            else:
+                # Sparse base sampling
+                ranges.append((seg_start, seg_end, base_fps))
+                # Add dense window around scene change
+                for st in scene_times:
+                    if seg_start < st < seg_end:
+                        dw_start = max(seg_start, st - dense_window / 2)
+                        dw_end = min(seg_end, st + dense_window / 2)
+                        ranges.append((dw_start, dw_end, dense_fps))
+
+    # Step 5: Merge overlapping ranges and sample
+    # Sort and merge
+    ranges.sort(key=lambda r: r[0])
+    merged = []
+    for r in ranges:
+        if merged and r[0] <= merged[-1][1]:
+            # Overlap -- keep higher FPS
+            existing = merged[-1]
+            new_fps = max(existing[2], r[2])
+            merged[-1] = (existing[0], max(existing[1], r[1]), new_fps)
+        else:
+            merged.append(r)
+
+    # Step 6: Extract frames for each range
+    # Use seek-based extraction for each range
+    frames = []
+    positions = set()  # Track positions to avoid duplicates
+
+    for start, end, range_fps in merged:
+        if range_fps <= 0:
+            continue
+        range_frames = extract_frames(
+            path, fps=range_fps, max_frames=max_frames,
+            max_resolution=max_resolution,
+        )
+
+        for f in range_frames:
+            if start <= f["timestamp"] <= end:
+                pos_key = round(f["timestamp"], 1)
+                if pos_key not in positions:
+                    positions.add(pos_key)
+                    frames.append(f)
+
+    # Step 7: Sort by timestamp and cap at max_frames
+    frames.sort(key=lambda f: f["timestamp"])
+
+    if len(frames) > max_frames:
+        # Evenly subsample to fit max_frames
+        step = len(frames) / max_frames
+        frames = [frames[int(i * step)] for i in range(max_frames)]
+
+    return frames
