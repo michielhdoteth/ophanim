@@ -8,6 +8,8 @@ from datetime import datetime
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.table import Table
+from rich.progress import Progress, BarColumn, TextColumn
 
 from ophanim.core.video import probe, extract_frames, estimate_processing_cost
 from ophanim.core.image import downscale, encode_base64, save_frame, load_image
@@ -175,45 +177,52 @@ def _handle_video(path: Path, question: Optional[str], json_output: bool,
 
     # Process frames with VLM
     timeline = []
-    entities = set()
 
-    for i, frame in enumerate(frames):
-        if question:
-            result_text = provider.describe_image(frame["image"], question)
-        else:
-            result_text = provider.describe_image(
-                frame["image"],
-                "Describe what is happening in this frame. Focus on objects, people, actions. Be concise (1-2 sentences)."
-            )
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        console=console,
+    ) as progress:
+        task = progress.add_task(
+            description=f"Analyzing {len(frames)} frames with VLM...",
+            total=len(frames),
+        )
 
-        timeline.append(TimelineEntry(
-            time_seconds=frame["timestamp"],
-            timestamp=frame["timestamp_str"],
-            observation=result_text,
-            frame_path=frame_paths[i] if i < len(frame_paths) else None,
-        ))
+        for i, frame in enumerate(frames):
+            progress.update(task, advance=1, description=f"Frame {i+1}/{len(frames)} at {frame['timestamp_str']}")
 
-        # Extract simple entities from description
-        # (basic keyword extraction; could be improved later)
-        for word in result_text.split():
-            clean = word.strip(".,!?:;\"'()[]").lower()
-            if clean and len(clean) > 3 and clean.isalpha():
-                if clean not in ("this", "that", "with", "from", "what", "there", "they", "when", "which"):
-                    entities.add(clean)
+            if question:
+                result_text = provider.describe_image(frame["image"], question)
+            else:
+                result_text = provider.describe_image(
+                    frame["image"],
+                    "Describe what is happening in this frame. Focus on objects, people, actions. Be concise (1-2 sentences)."
+                )
 
-    provider.close()
+            timeline.append(TimelineEntry(
+                time_seconds=frame["timestamp"],
+                timestamp=frame["timestamp_str"],
+                observation=result_text,
+                frame_path=frame_paths[i] if i < len(frame_paths) else None,
+            ))
 
-    # Generate summary
+    # Extract entities and generate summary using VLM
+    timeline_text = "\n".join(f"{t.timestamp}: {t.observation}" for t in timeline)
+    entities = _extract_entities(provider, timeline_text)
+
     if question:
         summary = _build_qa_summary(timeline, question)
     else:
-        summary = _build_timeline_summary(timeline)
+        summary = _generate_summary(provider, timeline)
+
+    provider.close()
 
     # Build result
     result = ObserveResult(
         summary=summary,
         timeline=timeline,
-        entities=sorted(list(entities))[:20],  # Cap entities
+        entities=entities,
         artifacts_dir=str(run_dir),
         confidence="medium",
     )
@@ -241,23 +250,57 @@ def _handle_video(path: Path, question: Optional[str], json_output: bool,
         _display_observation(result.model_dump())
 
 
-def _build_timeline_summary(timeline: list) -> str:
-    """Generate a summary from timeline entries."""
+def _generate_summary(provider, timeline: list) -> str:
+    """Use VLM to compress the timeline into a concise summary."""
     if not timeline:
         return "No observations recorded."
 
+    # Build timeline text (limit to 15 entries)
+    timeline_text = "\n".join(
+        f"{t.timestamp}: {t.observation}" for t in timeline[:15]
+    )
+
+    prompt = (
+        "Compress this video timeline into 2-3 concise sentences describing "
+        "what happened. Focus on key events, objects, and changes.\n\n"
+        f"{timeline_text}"
+    )
+
+    try:
+        import numpy as np
+        dummy = np.zeros((10, 10, 3), dtype=np.uint8)
+        result = provider.describe_image(dummy, prompt)
+        return result.strip()
+    except Exception:
+        return _build_timeline_summary_fallback(timeline)
+
+
+def _build_timeline_summary_fallback(timeline: list) -> str:
+    """Fallback summary if VLM summarization fails."""
     observations = [t.observation for t in timeline if t.observation]
     if not observations:
         return "No observations recorded."
-
-    # Use first and last observations to frame summary
-    first = observations[0]
-    last = observations[-1]
-
     if len(observations) == 1:
-        return first
+        return observations[0]
+    return f"The video shows: {observations[0]} Towards the end, {observations[-1]}"
 
-    return f"The video shows: {first} Towards the end, {last}"
+
+def _extract_entities(provider, timeline_text: str) -> list[str]:
+    """Use VLM to extract real entities from timeline descriptions."""
+    prompt = (
+        "From these video observations, extract a comma-separated list of the "
+        "main objects, people, and entities visible. Return ONLY the comma-separated list, no explanation.\n\n"
+        f"{timeline_text}"
+    )
+    try:
+        import numpy as np
+        dummy = np.zeros((10, 10, 3), dtype=np.uint8)
+        result = provider.describe_image(dummy, prompt)
+        # Parse comma-separated list
+        entities = [e.strip().lower() for e in result.split(",") if e.strip()]
+        return entities[:20]  # Cap at 20
+    except Exception:
+        return []
 
 
 def _build_qa_summary(timeline: list, question: str) -> str:
@@ -281,17 +324,27 @@ def _display_observation(data: dict):
 
     if data.get("timeline"):
         console.print("\n[bold]Timeline:[/bold]")
-        for entry in data["timeline"][:10]:  # Show first 10
+        table = Table()
+        table.add_column("Time", style="cyan", width=8)
+        table.add_column("Observation", style="white")
+
+        for entry in data["timeline"]:
             obs = entry.get("observation", "")
             ts = entry.get("timestamp", "??:??")
-            if len(obs) > 100:
-                obs = obs[:100] + "..."
-            console.print(f"  [{ts}] {obs}")
-        if len(data["timeline"]) > 10:
-            console.print(f"  [dim]... and {len(data['timeline']) - 10} more entries[/dim]")
+            if len(obs) > 80:
+                obs = obs[:80] + "..."
+            table.add_row(f"[{ts}]", obs)
+
+        # Only show first 15 rows to avoid flooding
+        console.print(table)
+        if len(data["timeline"]) > 15:
+            console.print(f"  [dim]... and {len(data['timeline']) - 15} more entries[/dim]")
 
     if data.get("entities"):
-        console.print(f"\n[bold]Entities:[/bold] {', '.join(data['entities'][:10])}")
+        ents = data.get("entities", [])
+        console.print(f"\n[bold]Entities:[/bold] {', '.join(ents[:15])}")
+        if len(ents) > 15:
+            console.print(f"  [dim]... and {len(ents) - 15} more[/dim]")
 
     if data.get("artifacts_dir"):
         console.print(f"\n[dim]Artifacts: {data['artifacts_dir']}[/dim]")

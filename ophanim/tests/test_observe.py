@@ -147,9 +147,9 @@ class TestBuildSummary:
 
     def _import_helpers(self):
         from ophanim.cli.commands.observe import (
-            _build_timeline_summary, _build_qa_summary
+            _build_timeline_summary_fallback, _build_qa_summary
         )
-        return _build_timeline_summary, _build_qa_summary
+        return _build_timeline_summary_fallback, _build_qa_summary
 
     def test_timeline_summary_single(self):
         tl_fn, _ = self._import_helpers()
