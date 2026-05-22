@@ -3,7 +3,7 @@ import typer
 import sys
 from pathlib import Path
 from typing import Optional
-from ophanim.cli.commands import probe, observe, ask, segment, track, status, memory
+from ophanim.cli.commands import probe, observe, ask, segment, track, status, memory, transcribe
 from ophanim.core.errors import OphanimError, handle_cli_error
 
 app = typer.Typer(
@@ -20,6 +20,7 @@ app.command(name="segment")(segment.segment_cmd)
 app.command(name="track")(track.track_cmd)
 app.command(name="status")(status.status_cmd)
 app.command(name="memory")(memory.memory_cmd)
+app.command(name="transcribe")(transcribe.transcribe_cmd)
 
 
 def load_config() -> dict:
