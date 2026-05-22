@@ -2,6 +2,10 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+dist/
+build/
 .env
 memory/
 runs/
+test_data/
+.DS_Store

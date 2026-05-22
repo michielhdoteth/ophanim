@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "visionclaw"
+name = "ophanim"
 version = "0.1.0"
 description = "Local visual perception layer for agents"
 requires-python = ">=3.9"
@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.scripts]
-visionclaw = "visionclaw.__main__:main"
+ophanim = "ophanim.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["visionclaw*"]
+include = ["ophanim*"]
