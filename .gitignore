@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environment
+.venv*/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Ophanim runtime
+runs/
+memory/
+ophanim_test_output.json
+
+# Manim render output
+media/
+*.log
+
+# YouTube production outputs
+youtube/networks/downloads/
+youtube/networks/renders/
+youtube/networks/voiceover/
+youtube/networks/manim/media/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Config with local overrides
+ophanim/config/local.yaml
+
+# Debug scripts
+debug_*.py
+test_results.py
+check_*.py
+measure_*.py
+verify_*.py
+
+# SAM 3 repo (cloned separately)
+sam3/

@@ -1,0 +1,8 @@
+# Iternaut Progress Log
+# Format: [TIMESTAMP] [AGENT:name] [PHASE:phase] [STATUS:STATUS] message | project:path | refs:file | tags:tags
+
+[2026-05-21T23:26:47.648Z] [AGENT:iternaut] [PHASE:research] [STATUS:DONE] Research complete: environment scan, LM Studio API verified, tech stack confirmed | project:Ophanim | refs:.iter/artifacts/decisions.md
+[2026-05-21T23:41:05.130Z] [AGENT:coder] [PHASE:build] [STATUS:DONE] TASK-002 complete: Core video probe + frame extraction | project:Ophanim | refs:ophanim/core/video.py, ophanim/core/image.py, ophanim/tests/test_video.py
+[2026-05-21T23:59:05.013Z] [AGENT:cli] [PHASE:build] [STATUS:DONE] Ophanim build complete - 12 tasks, 121 tests passing, 7 CLI commands | project:Ophanim | refs:ophanim/
+[2026-05-22T00:08:47.421Z] [AGENT:cli] [PHASE:plan] [STATUS:DONE] Enhancement plan: rename to Ophanim + audio (faster-whisper) + entity/summary/progress fixes | project:Ophanim | refs:ophanim/
+[2026-05-22T02:35:06.510Z] [AGENT:iternaut] [PHASE:build] [STATUS:DONE] Phase 7 complete: Full pipeline test - yt-dlp download, Ophanim analyze, Manim animate, Edge TTS voiceover, ffmpeg assemble to vertical Short | project:VisionClaw | refs:youtube/networks/renders/01_inside_neural_network_short.mp4

@@ -1,0 +1,27 @@
+{
+  "project": "Ophanim",
+  "plan": "PLAN-current.md",
+  "status": "complete",
+  "phase": "done",
+  "python": "3.12.10",
+  "venv": ".venv312",
+  "tasks": [
+    {"id": "A1-A3", "name": "Rename visionclaw -> Ophanim", "status": "completed"},
+    {"id": "B1", "name": "Audio extraction with ffmpeg", "status": "completed"},
+    {"id": "B2", "name": "Whisper transcription provider", "status": "completed"},
+    {"id": "B3", "name": "Transcribe CLI command", "status": "completed"},
+    {"id": "C1-C3", "name": "Fix entities, summary, progress bar", "status": "completed"},
+    {"id": "C4", "name": "Scene-adaptive frame sampling", "status": "completed"},
+    {"id": "B4-B5", "name": "Audio integration into observe + memory", "status": "completed"},
+    {"id": "SAM3", "name": "SAM 3 setup + provider", "status": "completed"}
+  ],
+  "completed_tasks": ["A1-A3", "B1", "B2", "B3", "C1-C3", "C4", "B4-B5", "SAM3"],
+  "tests_passing": 140,
+  "tests_skipped": 5,
+  "cli_commands": ["probe", "observe", "ask", "segment", "track", "status", "memory", "transcribe"],
+  "vlm_provider": "LM Studio (google/gemma-4-e2b)",
+  "audio_provider": "faster-whisper (CPU int8)",
+  "segmentation": "SAM 3.1 (pending HF checkpoint access) + MobileSAM fallback",
+  "last_test_video": "The_AI_That_Thinks_Like_a_Brain.mp4 (500s, 720p, 24fps)",
+  "last_test_result": "140 passed, 5 skipped. Summary+VLM entities+audio transcript all working"
+}
