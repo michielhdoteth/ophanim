@@ -85,7 +85,7 @@ ophanim/
 
 ## Status
 
-Built for local-first agent workflows. Maintained as needed; contributions welcome.
+Ophanim is a personal tool I built for my own local agent workflows. It is open source because other builders may find it useful, but it is not a heavily maintained product.
 
 - CLI: available
 - Video/image processing: available

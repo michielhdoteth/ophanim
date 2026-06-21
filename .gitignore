@@ -37,6 +37,9 @@ youtube/networks/renders/
 youtube/networks/voiceover/
 youtube/networks/manim/media/
 
+# Agent workspace
+.iter/
+
 # OS
 .DS_Store
 Thumbs.db

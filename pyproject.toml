@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "ophanim"
 version = "0.1.0"
 description = "Local visual perception layer for agents"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 dependencies = [
     "opencv-python>=4.13",
     "pillow>=11",
