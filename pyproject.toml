@@ -22,10 +22,12 @@ dependencies = [
     "scipy>=1.13",
     "tqdm>=4.67",
     "click>=8",
+    "yt-dlp>=2025",
 ]
 
 [project.scripts]
 ophanim = "ophanim.__main__:main"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["ophanim*"]
