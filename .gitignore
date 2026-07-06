@@ -21,6 +21,7 @@ env/
 *.swp
 *.swo
 *~
+.opencode/
 
 # Ophanim runtime
 runs/
