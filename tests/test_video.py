@@ -2,7 +2,7 @@
 import pytest
 import numpy as np
 from pathlib import Path
-from ophanim.core.video import (
+from openvision.core.video import (
     probe,
     _format_timestamp,
     _downscale,
@@ -10,7 +10,7 @@ from ophanim.core.video import (
     auto_fps_focus,
     extract_at_timestamps,
 )
-from ophanim.core.image import (
+from openvision.core.image import (
     downscale,
     encode_base64,
     make_thumbnail,

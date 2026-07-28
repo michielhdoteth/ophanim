@@ -1,7 +1,7 @@
 """Tests for Whisper provider."""
 import pytest
 from pathlib import Path
-from ophanim.providers.whisper import WhisperProvider, Transcript, TranscriptSegment
+from openvision.providers.whisper import WhisperProvider, Transcript, TranscriptSegment
 
 
 class TestTranscript:

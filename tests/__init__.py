@@ -1,1 +1,1 @@
-"""Tests for Ophanim."""
+"""Tests for openvision."""

@@ -2,8 +2,8 @@
 import pytest
 import numpy as np
 
-from ophanim.providers.base import VlmProvider, VlmResponse
-from ophanim.providers.lmstudio import LmStudioProvider
+from openvision.providers.base import VlmProvider, VlmResponse
+from openvision.providers.lmstudio import LmStudioProvider
 
 
 # ------------------------------------------------------------------

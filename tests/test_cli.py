@@ -1,7 +1,7 @@
 """Tests for CLI."""
 import pytest
 from typer.testing import CliRunner
-from ophanim.cli.app import app
+from openvision.cli.app import app
 
 runner = CliRunner()
 
@@ -10,7 +10,13 @@ class TestCliSmoke:
     def test_help_shows(self):
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "Ophanim" in result.output or "visual perception" in result.output
+        assert "openvision" in result.output or "visual perception" in result.output
+
+    def test_version_flag(self):
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert "openvision" in result.output.lower()
+        assert "home:" in result.output.lower() or "Home" in result.output
     
     def test_no_args_shows_help(self):
         result = runner.invoke(app, [])
@@ -72,7 +78,8 @@ class TestCliSmoke:
         assert "view" in result.output
         assert "delete" in result.output
 
-    def test_memory_list_empty(self):
+    def test_memory_list_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("openvision_HOME", str(tmp_path / "openvision-home"))
         result = runner.invoke(app, ["memory", "list"])
         assert result.exit_code == 0
         assert "No saved memories" in result.output

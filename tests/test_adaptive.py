@@ -1,6 +1,6 @@
 """Tests for adaptive frame sampling."""
 import pytest
-from ophanim.core.sampling import adaptive_sample
+from openvision.core.sampling import adaptive_sample
 
 
 class TestAdaptiveSample:

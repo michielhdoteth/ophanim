@@ -1,7 +1,7 @@
 """Tests for error handling system."""
 import pytest
-from ophanim.core.errors import (
-    OphanimError,
+from openvision.core.errors import (
+    OpenVisionError,
     VideoNotFoundError,
     UnsupportedCodecError,
     TooManyFramesError,
@@ -14,27 +14,27 @@ from ophanim.core.errors import (
 )
 
 
-class TestOphanimError:
+class TestOpenVisionError:
     def test_base_error(self):
-        err = OphanimError("TEST_CODE", "Test message", {"retry": True})
+        err = OpenVisionError("TEST_CODE", "Test message", {"retry": True})
         assert err.code == "TEST_CODE"
         assert err.message == "Test message"
         assert err.suggested_retry == {"retry": True}
 
     def test_to_dict(self):
-        err = OphanimError("TEST", "msg", {"mode": "fast"})
+        err = OpenVisionError("TEST", "msg", {"mode": "fast"})
         d = err.to_dict()
         assert d["error"] == "TEST"
         assert d["message"] == "msg"
         assert d["suggested_retry"] == {"mode": "fast"}
 
     def test_to_dict_no_retry(self):
-        err = OphanimError("TEST", "msg")
+        err = OpenVisionError("TEST", "msg")
         d = err.to_dict()
         assert "suggested_retry" not in d or d["suggested_retry"] is None
 
     def test_string_representation(self):
-        err = OphanimError("CODE", "description")
+        err = OpenVisionError("CODE", "description")
         assert "[CODE] description" in str(err)
 
 
@@ -81,7 +81,7 @@ class TestSpecificErrors:
 
 
 class TestFormatErrorForAgent:
-    def test_format_ophanim_error(self):
+    def test_format_openvision_error(self):
         err = VideoNotFoundError("test.mp4")
         formatted = format_error_for_agent(err)
         assert '"error": "VIDEO_NOT_FOUND"' in formatted
@@ -89,7 +89,7 @@ class TestFormatErrorForAgent:
 
 
 class TestHandleCliError:
-    def test_ophanim_error_passthrough(self):
+    def test_openvision_error_passthrough(self):
         err = GpuOutOfMemoryError()
         result = handle_cli_error(err)
         assert result["error"] == "GPU_OUT_OF_MEMORY"

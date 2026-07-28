@@ -23,10 +23,10 @@ env/
 *~
 .opencode/
 
-# Ophanim runtime
+# Open Vision runtime
 runs/
 memory/
-ophanim_test_output.json
+openvision_test_output.json
 
 # Manim render output
 media/
@@ -47,7 +47,7 @@ Thumbs.db
 Desktop.ini
 
 # Config with local overrides
-ophanim/config/local.yaml
+openvision/config/local.yaml
 
 # Debug scripts
 debug_*.py
