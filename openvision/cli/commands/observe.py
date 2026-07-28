@@ -71,6 +71,7 @@ def observe_cmd(
     force: bool = typer.Option(False, "--force", "-f", help="Force reprocess (ignore cache)"),
     timestamps: str = typer.Option(None, "--timestamps", help="Extract frames at specific timestamps (comma-separated, e.g., '0:30,2:15,5:00')"),
     provider_name: str = typer.Option(None, "--provider", help="VLM provider: auto, lmstudio, ollama, llamacpp, openai, groq, together, vllm, localai"),
+    segment: bool = typer.Option(None, "--segment", "-s", help="Run SAM segmentation on extracted frames (respects mode settings)"),
 ):
     """Analyze a video or image and return observations."""
     # Validate file exists or is URL
@@ -151,7 +152,7 @@ def observe_cmd(
     else:
         _handle_video(input_path, question, prompt, json_output, save_memory, transcribe_audio, diarize_audio, force,
                       config, mode, detail, actual_fps, actual_max_frames, actual_resolution, max_tokens, device,
-                      focus_start, focus_end, cue_timestamps, provider_name)
+                      focus_start, focus_end, cue_timestamps, provider_name, segment)
 
 
 def _handle_image(path: Path, question: Optional[str], custom_prompt: Optional[str],
@@ -276,7 +277,8 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
                   focus_start: Optional[float] = None,
                   focus_end: Optional[float] = None,
                   cue_timestamps: Optional[list[float]] = None,
-                  provider_name: Optional[str] = None):
+                  provider_name: Optional[str] = None,
+                  segment_flag: Optional[bool] = None):
     """Process a video file."""
     # Check cache (stable under openvision_HOME when relative)
     cache_dir = config.get("cache", {}).get("directory", "runs")
@@ -614,6 +616,13 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
         all_entries.sort(key=lambda e: e.time_seconds)
         timeline = all_entries
 
+    # Run SAM segmentation if requested or mode requires it
+    segmentation_data = None
+    seg_mode = mode_config.get("segmentation", False)
+    should_segment = segment_flag is True or (segment_flag is None and seg_mode is True)
+    if should_segment and frames:
+        segmentation_data = _run_segmentation(path, frames, config, mode)
+
     # Build result
     result = ObserveResult(
         summary=summary,
@@ -730,6 +739,51 @@ def _build_qa_summary(timeline: list, question: str) -> str:
     # Take the most detailed answer
     best = max(answers, key=len)
     return f"Based on video analysis: {best}"
+
+
+def _run_segmentation(path: Path, frames: list, config: dict, mode: str) -> Optional[dict]:
+    """Run SAM segmentation on extracted frames. Returns segmentation data or None."""
+    try:
+        from openvision.providers.sam import SamProvider
+    except ImportError:
+        console.print("[yellow]Segmentation unavailable: install ultralytics (pip install ultralytics)[/yellow]")
+        return None
+
+    mode_config = get_mode_config(config, mode)
+    resolution = mode_config.get("resolution", 768)
+    seg_fps = config.get("defaults", {}).get("segmentation_fps", 0.25)
+
+    log_vram("before_segmentation")
+    sam_config = config.get("models", {}).get("segmentation", {})
+    provider = SamProvider(sam_config)
+
+    try:
+        # Use the entities from VLM to know what to segment, or segment generically
+        # For now, segment all frames to detect objects
+        seg_frames = [(f["timestamp"], f["image"]) for f in frames[:20]]  # Cap at 20 frames for SAM
+        console.print(f"[dim]Running SAM segmentation on {len(seg_frames)} frames...[/dim]")
+
+        # Create temp dir for masks
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from pathlib import Path as _P
+            result = provider.segment_frames(
+                seg_frames,
+                "all objects",  # Generic prompt to segment everything
+                _P(tmpdir),
+            )
+            log_vram("after_segmentation")
+            return result
+    except Exception as e:
+        console.print(f"[yellow]Segmentation failed: {e}[/yellow]")
+        log_vram("after_segmentation_error")
+        return None
+    finally:
+        if config.get("gpu_policy", {}).get("unload_after_job", True):
+            try:
+                provider.unload()
+            except Exception:
+                pass
 
 
 def _display_observation(data: dict):

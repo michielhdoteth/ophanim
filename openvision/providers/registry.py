@@ -17,18 +17,18 @@ def _get_providers() -> dict[str, type[VlmProvider]]:
         from openvision.providers.lmstudio import LmStudioProvider
         from openvision.providers.ollama import OllamaProvider
         from openvision.providers.llamacpp import LlamaCppProvider
-        from openvision.providers.generic_openai import GenericOpenAIProvider
+        from openvision.providers.cloud import CloudProvider
 
         _PROVIDERS.update({
             "lmstudio": LmStudioProvider,
             "lmstudio-local": LmStudioProvider,
             "ollama": OllamaProvider,
             "llamacpp": LlamaCppProvider,
-            "openai": GenericOpenAIProvider,
-            "groq": GenericOpenAIProvider,
-            "together": GenericOpenAIProvider,
-            "vllm": GenericOpenAIProvider,
-            "localai": GenericOpenAIProvider,
+            "openai": CloudProvider,
+            "groq": CloudProvider,
+            "together": CloudProvider,
+            "vllm": CloudProvider,
+            "localai": CloudProvider,
         })
     return _PROVIDERS
 

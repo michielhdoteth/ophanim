@@ -1,4 +1,4 @@
-"""Generic OpenAI-compatible VLM provider.
+"""Cloud VLM provider — remote API backends.
 
 Works with OpenAI, Groq, vLLM, Together AI, LocalAI, and any other
 provider that implements the OpenAI chat completions protocol with vision.
@@ -9,8 +9,8 @@ from typing import Optional
 from openvision.providers.openai_compat import OpenAICompatProvider
 
 
-class GenericOpenAIProvider(OpenAICompatProvider):
-    """Generic provider for any OpenAI-compatible API with vision support.
+class CloudProvider(OpenAICompatProvider):
+    """Remote/cloud provider for any OpenAI-compatible API with vision support.
 
     Supports: OpenAI, Groq, vLLM, Together AI, LocalAI, Anyscale, etc.
 
@@ -33,3 +33,7 @@ class GenericOpenAIProvider(OpenAICompatProvider):
 
         config["api_key"] = api_key
         super().__init__(config)
+
+
+# Backward compat alias
+GenericOpenAIProvider = CloudProvider
