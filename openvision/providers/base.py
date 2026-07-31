@@ -91,3 +91,12 @@ class VlmProvider(ABC):
             True if the provider is reachable and ready, False otherwise.
         """
         ...
+
+    @abstractmethod
+    def close(self) -> None:
+        """Release resources (HTTP clients, GPU memory, etc.).
+
+        Called when the provider is no longer needed. Subclasses must
+        implement this to clean up connections and free resources.
+        """
+        ...

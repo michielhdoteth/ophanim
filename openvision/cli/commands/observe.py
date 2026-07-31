@@ -13,7 +13,7 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.progress import Progress, BarColumn, TextColumn, SpinnerColumn
 
-from openvision.core.video import probe, extract_frames, estimate_processing_cost, auto_fps, _downscale
+from openvision.core.video import probe, extract_frames, estimate_processing_cost, auto_fps, _downscale, detect_vfr, detect_color_range
 from openvision.core.image import downscale, encode_base64, save_frame, load_image
 from openvision.core.sampling import smart_sample
 from openvision.core.gpu import auto_downgrade_mode, log_vram
@@ -65,13 +65,15 @@ def observe_cmd(
     start_time: str = typer.Option(None, "--start", help="Start time for focus range (e.g., 1:30, 45, 0:15:00)"),
     end_time: str = typer.Option(None, "--end", help="End time for focus range (e.g., 2:00, 90, 0:20:00)"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
-    save_memory: bool = typer.Option(False, "--save-memory", help="Save observation as markdown memory"),
+    save_observations: bool = typer.Option(False, "--save-observations", help="Save observation as markdown ledger"),
     transcribe_audio: bool = typer.Option(False, "--transcribe", "-t", help="Transcribe audio speech to text"),
     diarize_audio: bool = typer.Option(False, "--diarize", help="Add speaker labels via diarization"),
     force: bool = typer.Option(False, "--force", "-f", help="Force reprocess (ignore cache)"),
     timestamps: str = typer.Option(None, "--timestamps", help="Extract frames at specific timestamps (comma-separated, e.g., '0:30,2:15,5:00')"),
     provider_name: str = typer.Option(None, "--provider", help="VLM provider: auto, lmstudio, ollama, llamacpp, openai, groq, together, vllm, localai"),
     segment: bool = typer.Option(None, "--segment", "-s", help="Run SAM segmentation on extracted frames (respects mode settings)"),
+    raw_frames: bool = typer.Option(False, "--raw-frames", help="Skip VLM — return raw frame paths and audio timeline for vision-capable agents"),
+    ground: Optional[str] = typer.Option(None, "--ground", "-g", help="Ground a query using LocateAnything-3B and merge results into the timeline"),
 ):
     """Analyze a video or image and return observations."""
     # Validate file exists or is URL
@@ -150,9 +152,9 @@ def observe_cmd(
     if is_image:
         _handle_image(input_path, question, prompt, json_output, config, actual_resolution, max_tokens, provider_name)
     else:
-        _handle_video(input_path, question, prompt, json_output, save_memory, transcribe_audio, diarize_audio, force,
+        _handle_video(input_path, question, prompt, json_output, save_observations, transcribe_audio, diarize_audio, force,
                       config, mode, detail, actual_fps, actual_max_frames, actual_resolution, max_tokens, device,
-                      focus_start, focus_end, cue_timestamps, provider_name, segment)
+                      focus_start, focus_end, cue_timestamps, provider_name, segment, raw_frames, ground)
 
 
 def _handle_image(path: Path, question: Optional[str], custom_prompt: Optional[str],
@@ -269,7 +271,7 @@ def _extract_focus_range(path: str, start: Optional[float], end: Optional[float]
 
 
 def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[str],
-                  json_output: bool, save_memory: bool, transcribe_audio: bool, diarize_audio: bool, force: bool,
+                  json_output: bool, save_observations: bool, transcribe_audio: bool, diarize_audio: bool, force: bool,
                   config: dict, mode: str, detail: str = "balanced",
                   fps: float = 0.5, max_frames: int = 60, resolution: int = 768,
                   override_max_tokens: Optional[int] = None,
@@ -278,7 +280,9 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
                   focus_end: Optional[float] = None,
                   cue_timestamps: Optional[list[float]] = None,
                   provider_name: Optional[str] = None,
-                  segment_flag: Optional[bool] = None):
+                  segment_flag: Optional[bool] = None,
+                  raw_frames: bool = False,
+                  ground_query: Optional[str] = None):
     """Process a video file."""
     # Check cache (stable under openvision_HOME when relative)
     cache_dir = config.get("cache", {}).get("directory", "runs")
@@ -304,6 +308,19 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
     # Probe video
     log_vram("video_probe")
     video_meta = probe(str(path))
+
+    # Detect VFR and color range for smarter sampling
+    vfr_info = detect_vfr(str(path))
+    vfr_mode = vfr_info.get("mode", "cfr")
+    if vfr_mode == "vfr":
+        console.print(f"[yellow]VFR detected: {vfr_info.get('variable_frames', 0)} variable / "
+                      f"{vfr_info.get('constant_frames', 0)} constant frames "
+                      f"({vfr_info.get('vfr_ratio', 0):.0%} VFR)[/yellow]")
+        console.print("[dim]Using ffmpeg timestamp-based extraction for accurate sampling.[/dim]")
+
+    color_info = detect_color_range(str(path))
+    if color_info.get("range_type") != "unknown":
+        console.print(f"[dim]Color range: {color_info['range_type']}[/dim]")
 
     # Smart frame budget based on duration
     duration = video_meta["duration_seconds"]
@@ -346,9 +363,9 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
         # balanced (default)
         if duration > 120:
             from openvision.core.sampling import adaptive_sample
-            frames = adaptive_sample(str(path), max_frames=actual_max, max_resolution=resolution)
+            frames = adaptive_sample(str(path), max_frames=actual_max, max_resolution=resolution, vfr_mode=vfr_mode)
         else:
-            frames = smart_sample(str(path), fps=fps, max_frames=actual_max, max_resolution=resolution)
+            frames = smart_sample(str(path), fps=fps, max_frames=actual_max, max_resolution=resolution, vfr_mode=vfr_mode)
 
     # Transcript-only early return: skip VLM, just run audio processing
     if detail == "transcript" and not frames:
@@ -429,8 +446,8 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
             )
             cache.save_text(run_dir, "transcript.txt", transcript_text)
 
-        if save_memory:
-            _save_memory_md(path, result, config, transcript)
+        if save_observations:
+            _save_observation_md(path, result, config, transcript)
 
         log_vram("observation_complete")
 
@@ -476,6 +493,49 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
         fpath = cache.save_frame(run_dir, frame["image"], fname)
         frame_paths.append(str(fpath))
         frame["path"] = str(fpath)
+
+    # --- raw-frames mode: skip VLM, return frames + audio timeline ---
+    if raw_frames:
+        from openvision.models import RawFrame, TimelineEntry
+        raw = [
+            RawFrame(index=i, timestamp=f["timestamp"], path=f["path"])
+            for i, f in enumerate(frames)
+        ]
+
+        # Build audio-only timeline from transcript if available
+        timeline: list[TimelineEntry] = []
+        if transcript and transcript.segments:
+            for seg in transcript.segments:
+                timeline.append(TimelineEntry(
+                    time_seconds=seg.start,
+                    timestamp=_fmt_time(seg.start),
+                    observation=seg.text,
+                    speaker=getattr(seg, "speaker", None),
+                    modality="audio",
+                ))
+
+        result = ObserveResult(
+            summary=f"Raw frames extracted: {len(frames)} frames from {path.name}",
+            timeline=timeline,
+            entities=[],
+            artifacts_dir=str(run_dir),
+            confidence="high",
+            raw_frames=raw,
+        )
+
+        cache.save_artifact(run_dir, "observations.json", result.model_dump())
+
+        if save_observations:
+            _save_observation_md(path, result, config, transcript)
+
+        if json_output:
+            console.print(json.dumps(result.model_dump(), indent=2))
+        else:
+            console.print(f"[green]Extracted {len(frames)} raw frames to {run_dir}[/green]")
+            if transcript and transcript.segments:
+                console.print(f"[dim]Audio timeline: {len(transcript.segments)} segments with speaker labels[/dim]")
+            console.print("[dim]Ready for vision-capable agent processing.[/dim]")
+        return
 
     # Query VLM
     vlm_config = config.get("models", {}).get("vlm", {})
@@ -633,6 +693,10 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
         tokens={"prompt_tokens": total_tokens.prompt_tokens, "completion_tokens": total_tokens.completion_tokens, "reasoning_tokens": total_tokens.reasoning_tokens, "total_tokens": total_tokens.total_tokens},
     )
 
+    # Run LocateAnything grounding if requested
+    if ground_query:
+        _run_grounding(ground_query, frames, timeline, run_dir, config)
+
     # Save artifacts
     cache.save_artifact(run_dir, "observations.json", result.model_dump())
     cache.save_text(run_dir, "summary.md", f"# Observation Summary\n\n{summary}\n")
@@ -651,9 +715,9 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
         )
         cache.save_text(run_dir, "transcript.txt", transcript_text)
 
-    # Save memory markdown if requested
-    if save_memory:
-        _save_memory_md(path, result, config, transcript)
+    # Save observation markdown if requested
+    if save_observations:
+        _save_observation_md(path, result, config, transcript)
 
     log_vram("observation_complete")
 
@@ -786,6 +850,64 @@ def _run_segmentation(path: Path, frames: list, config: dict, mode: str) -> Opti
                 pass
 
 
+def _run_grounding(query: str, frames: list, timeline: list, run_dir, config: dict) -> None:
+    """Run LocateAnything grounding and merge results into the timeline."""
+    from openvision.providers.locate_anything import LocateAnythingProvider
+    from openvision.models import TimelineEntry
+
+    locate_config = config.get("models", {}).get("locate", {})
+
+    console.print(f"[dim]Running LocateAnything grounding: '{query}'...[/dim]")
+
+    provider = LocateAnythingProvider(locate_config)
+
+    try:
+        if not provider.check_health():
+            console.print("[yellow]LocateAnything endpoint not available — skipping grounding.[/yellow]")
+            return
+
+        log_vram("before_grounding")
+        ground_frames = [(f["timestamp"], f["image"]) for f in frames]
+        raw_result = provider.locate_frames(ground_frames, query, str(run_dir))
+        log_vram("after_grounding")
+
+        # Merge grounding results into timeline
+        grounding_timeline = []
+        for r in raw_result["results"]:
+            if not r["boxes"]:
+                continue
+
+            labels = [b["label"] for b in r["boxes"]]
+            scores = [f"{b['score']:.0%}" for b in r["boxes"]]
+
+            # Add a grounding entry to the main timeline
+            entry = TimelineEntry(
+                time_seconds=r["timestamp"],
+                timestamp=_fmt_time(r["timestamp"]),
+                observation=f"[GROUND] {query}: {', '.join(labels)} (confidence: {', '.join(scores)})",
+                frame_path=None,
+            )
+            timeline.append(entry)
+            grounding_timeline.append(entry)
+
+        # Sort timeline by timestamp
+        timeline.sort(key=lambda e: e.time_seconds)
+
+        if grounding_timeline:
+            console.print(f"[dim]Grounding found {len(grounding_timeline)} frames with matches.[/dim]")
+        else:
+            console.print(f"[dim]No matches found for '{query}'.[/dim]")
+
+    except Exception as e:
+        console.print(f"[yellow]Grounding failed: {e}[/yellow]")
+    finally:
+        if config.get("gpu_policy", {}).get("unload_after_job", True):
+            try:
+                provider.unload()
+            except Exception:
+                pass
+
+
 def _display_observation(data: dict):
     """Display observation result in rich format."""
     console.print(Panel(data.get("summary", ""), title="[bold cyan]Observation Summary[/bold cyan]"))
@@ -822,17 +944,17 @@ def _display_observation(data: dict):
         console.print(f"\n[dim]Artifacts: {data['artifacts_dir']}[/dim]")
 
 
-def _save_memory_md(path: Path, result: ObserveResult, config: dict,
+def _save_observation_md(path: Path, result: ObserveResult, config: dict,
                     transcript: Optional[Transcript] = None):
-    """Save observation as markdown memory file under openvision_HOME (stable path)."""
+    """Save observation as markdown ledger file under openvision_HOME (stable path)."""
     from datetime import date
-    from openvision.storage.paths import memory_dir as get_memory_dir
+    from openvision.storage.paths import observations_dir
 
     today = date.today().isoformat()
     video_name = path.stem
 
-    mem_dir = get_memory_dir(config)
-    memory_path = mem_dir / f"{today}-{video_name}.md"
+    obs_dir = observations_dir(config)
+    obs_path = obs_dir / f"{today}-{video_name}.md"
     lines = [
         f"# Video Observation: {path.name}",
         "",
@@ -864,7 +986,7 @@ def _save_memory_md(path: Path, result: ObserveResult, config: dict,
             lines.append(f"- **{ts}** {speaker}{seg.text}")
 
     lines.extend(["", "## Artifacts", "", f"- Frames: `{result.artifacts_dir}/frames/`"])
-    lines.extend(["", f"Memory path: `{memory_path}`"])
+    lines.extend(["", f"Observation path: `{obs_path}`"])
 
-    memory_path.write_text("\n".join(lines), encoding="utf-8")
-    console.print(f"[green]Memory saved:[/green] {memory_path}")
+    obs_path.write_text("\n".join(lines), encoding="utf-8")
+    console.print(f"[green]Memory saved:[/green] {obs_path}")

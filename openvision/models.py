@@ -3,13 +3,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, Literal
 from datetime import datetime
 
-
-class TokenUsage(BaseModel):
-    """Token usage stats from a VLM API call."""
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    reasoning_tokens: int = 0
-    total_tokens: int = 0
+# Re-export canonical TokenUsage from providers.base (Pydantic-compatible)
+from openvision.providers.base import TokenUsage
 
 
 class Frame(BaseModel):
@@ -26,6 +21,17 @@ class TimelineEntry(BaseModel):
     timestamp: str
     observation: str
     frame_path: Optional[str] = None
+    speaker: Optional[str] = None
+    modality: Literal["visual", "audio", "segmentation", "grounding"] = "visual"
+    boxes: list = Field(default_factory=list)  # list of GroundingBox dicts when modality="grounding"
+
+
+class RawFrame(BaseModel):
+    """A raw extracted frame with its path and timestamp."""
+    index: int
+    timestamp: float
+    path: str
+    base64: Optional[str] = None
 
 
 class ObserveResult(BaseModel):
@@ -36,6 +42,46 @@ class ObserveResult(BaseModel):
     artifacts_dir: str
     confidence: Literal["low", "medium", "high"]
     tokens: Optional[TokenUsage] = None
+    raw_frames: Optional[list[RawFrame]] = None
+
+
+class TranscribeResult(BaseModel):
+    """Result of a video_transcribe operation."""
+    segments: list[dict]
+    language: str = "unknown"
+    duration_seconds: float = 0.0
+    device: str = "auto"
+    tokens: Optional[TokenUsage] = None
+
+
+class GroundingBox(BaseModel):
+    """A single bounding box from LocateAnything-3B grounding."""
+    x1: float  # normalized [0,1] left coordinate
+    y1: float  # normalized [0,1] top coordinate
+    x2: float  # normalized [0,1] right coordinate
+    y2: float  # normalized [0,1] bottom coordinate
+    label: str  # object label (e.g. "person", "cup")
+    score: float  # confidence [0,1]
+
+
+class GroundingFrame(BaseModel):
+    """Grounding results for a single frame."""
+    timestamp: float
+    timestamp_str: str  # "MM:SS" formatted
+    frame_path: Optional[str] = None
+    boxes: list[GroundingBox] = Field(default_factory=list)
+    query: str  # the query that produced these boxes
+
+
+class GroundingResult(BaseModel):
+    """Complete grounding result from `openvision ground`."""
+    query: str
+    video_path: str
+    frames: list[GroundingFrame] = Field(default_factory=list)
+    summary: str = ""  # optional VLM summary of grounding results
+    tokens: Optional[TokenUsage] = None
+    confidence: Literal["low", "medium", "high"] = "high"
+    artifacts_dir: Optional[str] = None
 
 
 class AskResult(BaseModel):
@@ -55,6 +101,15 @@ class ProbeResult(BaseModel):
     codec: str
     frame_count: int
     estimated_processing_cost: Literal["low", "medium", "high"]
+    vfr_mode: str = "unknown"
+    color_range: str = "unknown"
+    has_audio: bool = False
+    pixel_format: str = "unknown"
+    bit_rate: int = 0
+    # Deep analysis fields (populated with --deep flag)
+    vfr_variable_frames: int = 0
+    vfr_constant_frames: int = 0
+    vfr_ratio: float = 0.0
 
 
 class SegmentObject(BaseModel):
@@ -122,5 +177,3 @@ class OpenVisionConfig(BaseModel):
     modes: dict = Field(default_factory=dict)
 
 
-# Deprecation alias for backward compatibility
-OphanimConfig = OpenVisionConfig

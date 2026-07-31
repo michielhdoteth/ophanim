@@ -3,7 +3,7 @@ import typer
 import sys
 from pathlib import Path
 from typing import Optional
-from openvision.cli.commands import probe, observe, ask, segment, track, status, memory, transcribe
+from openvision.cli.commands import probe, observe, ask, segment, track, status, observations, transcribe, ground
 from openvision.core.errors import OpenVisionError, handle_cli_error
 
 app = typer.Typer(
@@ -24,11 +24,11 @@ def _package_version() -> str:
 
 def version_callback(value: bool):
     if value:
-        from openvision.storage.paths import get_home, memory_dir, downloads_dir
+        from openvision.storage.paths import get_home, observations_dir, downloads_dir
 
         typer.echo(f"openvision {_package_version()}")
         typer.echo(f"home: {get_home()}")
-        typer.echo(f"memory: {memory_dir()}")
+        typer.echo(f"observations: {observations_dir()}")
         typer.echo(f"downloads: {downloads_dir()}")
         raise typer.Exit()
 
@@ -55,8 +55,9 @@ app.command(name="ask")(ask.ask_cmd)
 app.command(name="segment")(segment.segment_cmd)
 app.command(name="track")(track.track_cmd)
 app.command(name="status")(status.status_cmd)
-app.command(name="memory")(memory.memory_cmd)
+app.command(name="observations")(observations.observations_cmd)
 app.command(name="transcribe")(transcribe.transcribe_cmd)
+app.command(name="ground")(ground.ground_cmd)
 
 
 def load_config() -> dict:

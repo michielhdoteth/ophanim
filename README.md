@@ -1,39 +1,117 @@
 # Open Vision
 
-**Self-hosted, privacy-first AI vision tool for CLI and agents.**
+**Agents are blind by default. Open Vision gives them eyes and ears.**
 
-Open Vision is a local CLI that gives shell-capable agents visual perception: video inspection, frame sampling, visual Q&A, transcription, segmentation, tracking, and compact JSON/Markdown outputs.
+A local CLI that gives shell-capable agents visual perception. No cloud, no telemetry, no API keys required.
 
-Built for local agent workflows — no cloud upload, no telemetry, full privacy.
+```
+openvision observe video.mp4          # See what's in a video
+openvision ask video.mp4 "what color is the car?"  # Targeted visual Q&A
+openvision transcribe video.mp4       # Speech-to-text with speaker labels
+openvision --version                  # Version + data paths
+```
+
+Open Vision is the eyes for agent frameworks — read the full [Open Vision Agent Guide](https://github.com/michielhdoteth/openvision/blob/main/AGENT_GUIDE.md) to get started.
+
+## Two Operating Modes
+
+### Agent with vision (recommended)
+
+If your agent supports image input (Claude Code, etc.), use `--raw-frames`:
+
+```bash
+openvision observe video.mp4 --raw-frames --transcribe --diarize --json
+```
+
+This skips the local VLM entirely — just extracts frames, runs audio transcription, and returns frame paths + audio timeline. Your vision-capable agent reads the frames directly.
+
+### Agent without vision
+
+Use the default mode with a local VLM backend (LM Studio, Ollama, llama.cpp):
+
+```bash
+openvision observe video.mp4 --json
+```
+
+Open Vision analyzes each frame locally and returns structured observations.
 
 ## Commands
 
 ```
-openvision --version                # Version + data paths
-openvision probe video.mp4          # Video metadata
-openvision observe video.mp4        # Visual analysis + timeline
-openvision observe "https://..."    # Native yt-dlp download + observe
-openvision ask video.mp4 "..."      # Targeted visual question
-openvision segment video.mp4 "..."  # Text-prompt segmentation
-openvision track video.mp4 "..."    # Object tracking
-openvision transcribe video.mp4     # Speech-to-text
-openvision status                   # GPU, VRAM, provider health, cache
-openvision memory list              # Saved observations (~/.openvision/memory)
+openvision --version                  # Version + data paths
+openvision probe video.mp4            # Video metadata (duration, fps, codec)
+openvision observe video.mp4          # Visual analysis + cross-modal timeline
+openvision observe "https://..."      # Native yt-dlp download + observe
+openvision ask video.mp4 "..."        # Targeted visual question
+openvision segment video.mp4 "..."    # Text-prompt segmentation (SAM)
+openvision track video.mp4 "..."      # Object tracking
+openvision transcribe video.mp4       # Speech-to-text (faster-whisper)
+openvision status                     # GPU, VRAM, provider health, cache
+openvision observations list          # Saved observation ledgers
 ```
 
-### Data paths (stable, not CWD-relative)
+### Key Flags
+
+| Flag | Effect |
+|------|--------|
+| `--raw-frames` | Skip VLM — return frame paths + audio timeline for vision-capable agents |
+| `--transcribe` / `-t` | Transcribe audio with faster-whisper |
+| `--diarize` | Add speaker labels to transcription (requires `pyannote.audio`) |
+| `--save-observations` | Save a machine-readable observation ledger to `~/.openvision/observations/` |
+| `--json` | Output structured JSON (for agent consumption) |
+| `--provider` | Select VLM backend: `auto`, `lmstudio`, `ollama`, `llamacpp`, `openai`, `groq`, `together` |
+| `--mode` | Processing mode: `fast`, `balanced`, `detailed` |
+| `--segment` / `-s` | Run SAM segmentation on extracted frames |
+
+### Cross-Modal Timeline
+
+When `--transcribe` or `--diarize` is used, the timeline includes audio segments aligned with visual observations:
+
+```json
+{
+  "timeline": [
+    {
+      "time_seconds": 0.0,
+      "timestamp": "00:00",
+      "observation": "Speaker says: welcome to the presentation",
+      "speaker": "SPEAKER_00",
+      "modality": "audio"
+    },
+    {
+      "time_seconds": 5.2,
+      "timestamp": "00:05",
+      "observation": "A person in a blue shirt is standing at a podium",
+      "frame_path": "/path/to/frame_0002.jpg",
+      "modality": "visual"
+    }
+  ]
+}
+```
+
+Fields:
+- **`speaker`**: Speaker ID from diarization (e.g. `SPEAKER_00`), `null` for visual entries
+- **`modality`**: `"visual"`, `"audio"`, or `"segmentation"` — lets agents filter timeline by data type
+
+### Data Paths (stable, not CWD-relative)
 
 | Path | Default |
 |------|---------|
 | Home | `~/.openvision` (`OPENVISION_HOME`) |
-| Memory | `~/.openvision/memory/videos` |
+| Observations | `~/.openvision/observations/videos` |
 | Downloads | `~/.openvision/downloads` |
 | Runs | `~/.openvision/runs` |
 
+### Observation Ledgers
+
+`--save-observations` writes a structured markdown file combining summary + timeline + transcript:
+
 ```bash
-openvision observe "https://www.youtube.com/watch?v=ID" --mode balanced --detail efficient -t --save-memory --json
-openvision memory list
+openvision observe video.mp4 --transcribe --diarize --save-observations
+openvision observations list
+openvision observations view 2026-07-30-my-video
 ```
+
+This is a machine-readable ledger of the whole video — no need to rewatch or re-analyze.
 
 ## Supported Backends
 
@@ -56,14 +134,15 @@ pip install -e .
 
 # Optional dependencies
 pip install faster-whisper    # Audio transcription
-pip install ultralytics       # SAM segmentation (optional)
+pip install pyannote.audio    # Speaker diarization
+pip install ultralytics       # SAM segmentation
 
 # Start any supported backend (e.g. LM Studio, Ollama, llama.cpp)
 # Then:
 openvision status              # Verify provider connectivity
 openvision probe video.mp4
 openvision observe video.mp4 --json
-openvision observe video.mp4 --transcribe --json
+openvision observe video.mp4 --transcribe --diarize --json
 ```
 
 ### Provider Selection
@@ -75,7 +154,6 @@ openvision observe video.mp4 --provider auto
 # Explicit backend
 openvision observe video.mp4 --provider lmstudio
 openvision observe video.mp4 --provider ollama
-openvision observe video.mp4 --provider llamacpp
 
 # Cloud APIs (set API key env var first)
 export OPENAI_API_KEY="sk-..."
@@ -83,20 +161,6 @@ openvision observe video.mp4 --provider openai
 
 export GROQ_API_KEY="gsk_..."
 openvision observe video.mp4 --provider groq
-
-export TOGETHER_API_KEY="..."
-openvision observe video.mp4 --provider together
-```
-
-### Model Selection
-
-```bash
-# Auto-detect loaded model (default)
-openvision observe video.mp4 --model auto
-
-# Specify model name
-openvision observe video.mp4 --model "llava:13b"
-openvision observe video.mp4 --model "gpt-4o"
 ```
 
 ## Configuration
@@ -115,32 +179,19 @@ set OPENVISION_CONFIG=my_config.yaml
 | `balanced` (default) | 768px | 0.5 | 60 | On-demand (`--segment`) | Most workflows |
 | `detailed` | 1024px | 1.0 | 180 | Always on | High-value clips |
 
-### Segmentation
-
-SAM segmentation isolates objects in extracted frames. Requires `pip install ultralytics`.
-
-```bash
-# Standalone segmentation
-openvision segment video.mp4 "a person wearing red"
-
-# Inline with observe (on-demand in balanced mode)
-openvision observe video.mp4 --segment
-
-# Always segment in detailed mode
-openvision observe video.mp4 --mode detailed
-```
-
 ## Architecture
 
 ```
 openvision/
   cli/              # Typer CLI (8 commands)
     commands/
-      observe.py    # Main analysis + inline segmentation
-      ask.py        # Visual Q&A
+      observe.py    # Main analysis + raw-frames mode
+      ask.py        # Visual Q&A + raw-frames mode
+      observations.py  # Saved observation ledgers
       segment.py    # Standalone SAM segmentation
       track.py      # Object tracking
       status.py     # Provider health + GPU info
+      transcribe.py # Speech-to-text
   core/             # Video, GPU, sampling, audio, errors
   providers/        # Multi-provider VLM architecture
     base.py         # Abstract VlmProvider interface
@@ -152,8 +203,8 @@ openvision/
     registry.py     # Auto-detection + factory
     sam.py          # SAM segmentation provider
     whisper.py      # Whisper transcription provider
-  storage/          # Config, cache
-  models.py         # Pydantic schemas
+  storage/          # Config, cache, paths
+  models.py         # Pydantic schemas (TimelineEntry, RawFrame, etc.)
   config/           # default.yaml
   tests/            # 250+ tests
 ```
@@ -165,33 +216,14 @@ openvision/
 - Multi-provider VLM support: available (7 backends)
 - Auto-detection: available
 - Transcription (faster-whisper): available
+- Speaker diarization (pyannote): available
 - SAM segmentation: available (optional dependency)
 - Object tracking: available
-- Agent memory tools: available
+- Raw frames mode (vision-capable agents): available
+- Cross-modal timeline (visual + audio): available
 - Mode-based resource control: available
-- MCP adapter: planned
 - HTTP API: planned
-
-## Roadmap
-
-- [x] Multi-provider architecture (LM Studio, Ollama, llama.cpp, OpenAI, Groq, Together)
-- [x] Auto-detection of running providers
-- [x] Mode-based segmentation control
-- [ ] URL image fetching
-- [ ] Batch processing
-- [ ] Screen capture
-- [ ] Setup wizard
-- [ ] Model download helper
-- [ ] OpenCV 5 DNN integration (YOLO26, SAM 2)
-- [ ] FFmpeg 8.x vfrdet for variable frame rate detection
-- [ ] HTTP API server
-- [ ] MCP adapter
-
-## Maintenance
-
-This repo is released as-is. It is open source because other builders may find it useful, but it is not a heavily maintained product.
-
-If it works for your setup, great. If not, fork it, adapt it, or open an issue with enough detail to reproduce the problem.
+- MCP adapter: not planned (CLI access is cleaner)
 
 ## License
 

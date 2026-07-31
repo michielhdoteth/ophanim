@@ -33,6 +33,7 @@ def ask_cmd(
     max_tokens: int = typer.Option(None, "--max-tokens", help="Override max tokens for VLM response"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
     provider_name: str = typer.Option(None, "--provider", help="VLM provider: auto, lmstudio, ollama, llamacpp, openai, groq, together, vllm, localai"),
+    raw_frames: bool = typer.Option(False, "--raw-frames", help="Skip VLM — return raw frame paths for vision-capable agents"),
 ):
     """Ask a targeted question about video content."""
     input_path = Path(path)
@@ -75,6 +76,34 @@ def ask_cmd(
         raise typer.Exit(code=1)
 
     console.print(f"[dim]Analyzing {len(frames)} frames to answer: {question}[/dim]")
+
+    # --- raw-frames mode: skip VLM, return frame paths ---
+    if raw_frames:
+        import tempfile
+        from openvision.core.image import save_frame
+        from openvision.models import RawFrame
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="openvision_raw_"))
+        raw = []
+        for i, frame in enumerate(frames):
+            fname = f"frame_{i:04d}.jpg"
+            fpath = tmp_dir / fname
+            save_frame(frame["image"], str(fpath))
+            raw.append(RawFrame(index=i, timestamp=frame["timestamp"], path=str(fpath)))
+
+        result = {
+            "question": question,
+            "raw_frames": [r.model_dump() for r in raw],
+            "frame_dir": str(tmp_dir),
+            "total_frames": len(raw),
+        }
+
+        if json_output:
+            console.print(json.dumps(result, indent=2))
+        else:
+            console.print(f"[green]Extracted {len(raw)} raw frames to {tmp_dir}[/green]")
+            console.print("[dim]Ready for vision-capable agent processing.[/dim]")
+        return
 
     # Query VLM
     vlm_config = config.get("models", {}).get("vlm", {})

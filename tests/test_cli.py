@@ -71,23 +71,23 @@ class TestCliSmoke:
         result = runner.invoke(app, ["ask", "test.mp4", "what is this?"])
         assert result.exit_code != 0  # File not found
 
-    def test_memory_help(self):
-        result = runner.invoke(app, ["memory", "--help"])
+    def test_observations_help(self):
+        result = runner.invoke(app, ["observations", "--help"])
         assert result.exit_code == 0
         assert "list" in result.output
         assert "view" in result.output
         assert "delete" in result.output
 
-    def test_memory_list_empty(self, tmp_path, monkeypatch):
+    def test_observations_list_empty(self, tmp_path, monkeypatch):
         monkeypatch.setenv("openvision_HOME", str(tmp_path / "openvision-home"))
-        result = runner.invoke(app, ["memory", "list"])
+        result = runner.invoke(app, ["observations", "list"])
         assert result.exit_code == 0
-        assert "No saved memories" in result.output
+        assert "No saved observations" in result.output
 
-    def test_memory_view_no_name(self):
-        result = runner.invoke(app, ["memory", "view"])
+    def test_observations_view_no_name(self):
+        result = runner.invoke(app, ["observations", "view"])
         assert result.exit_code != 0
 
-    def test_memory_delete_no_name(self):
-        result = runner.invoke(app, ["memory", "delete"])
+    def test_observations_delete_no_name(self):
+        result = runner.invoke(app, ["observations", "delete"])
         assert result.exit_code != 0

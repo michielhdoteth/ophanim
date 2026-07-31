@@ -30,10 +30,10 @@ def status_cmd(
     safety = check_safe_mode(config)
 
     # Paths + cache (stable under openvision_HOME)
-    from openvision.storage.paths import get_home, memory_dir, downloads_dir, runs_dir
+    from openvision.storage.paths import get_home, observations_dir, downloads_dir, runs_dir
 
     home = get_home(config)
-    mem = memory_dir(config)
+    obs = observations_dir(config)
     dls = downloads_dir(config)
     runs_path = runs_dir(config)
 
@@ -56,7 +56,7 @@ def status_cmd(
         payload = result.model_dump()
         payload["paths"] = {
             "home": str(home),
-            "memory": str(mem),
+            "observations": str(obs),
             "downloads": str(dls),
             "runs": str(runs_path),
         }
@@ -75,12 +75,12 @@ def status_cmd(
         path_table.add_column("Key", style="cyan")
         path_table.add_column("Path")
         path_table.add_row("Home", str(home))
-        path_table.add_row("Memory", str(mem))
+        path_table.add_row("Observations", str(obs))
         path_table.add_row("Downloads", str(dls))
         path_table.add_row("Runs", str(runs_path))
         console.print(path_table)
-        mem_count = len(list(mem.glob("*.md")))
-        console.print(f"[dim]Saved memories: {mem_count}[/dim]")
+        obs_count = len(list(obs.glob("*.md")))
+        console.print(f"[dim]Saved observations: {obs_count}[/dim]")
 
 
 def _get_loaded_models(config: dict) -> list[str]:

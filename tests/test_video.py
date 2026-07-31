@@ -9,6 +9,8 @@ from openvision.core.video import (
     estimate_processing_cost,
     auto_fps_focus,
     extract_at_timestamps,
+    detect_vfr,
+    detect_color_range,
 )
 from openvision.core.image import (
     downscale,
@@ -184,3 +186,92 @@ class TestExtractAtTimestamps:
 
         frames = extract_at_timestamps(str(videos[0]), [])
         assert frames == []
+
+
+class TestVFRDetection:
+    """Tests for variable frame rate detection."""
+
+    def test_detect_vfr_returns_dict(self):
+        """detect_vfr always returns a dict with expected keys."""
+        result = detect_vfr("nonexistent.mp4")
+        assert isinstance(result, dict)
+        assert "is_vfr" in result
+        assert "mode" in result
+        assert "variable_frames" in result
+        assert "constant_frames" in result
+        assert "vfr_ratio" in result
+
+    def test_detect_vfr_nonexistent_file(self):
+        """detect_vfr handles missing files gracefully."""
+        result = detect_vfr("nonexistent_file_12345.mp4")
+        assert result["mode"] == "unknown"
+        assert result["is_vfr"] is False
+
+    def test_detect_vfr_real_video(self):
+        """Integration test with a real video."""
+        import os
+        test_data = Path("test_data")
+        if not test_data.exists():
+            pytest.skip("No test data available")
+        videos = list(test_data.glob("*.mp4"))
+        if not videos:
+            pytest.skip("No test video available")
+
+        result = detect_vfr(str(videos[0]))
+        assert result["mode"] in ("cfr", "vfr", "unknown")
+        assert isinstance(result["variable_frames"], int)
+        assert isinstance(result["constant_frames"], int)
+        assert 0.0 <= result["vfr_ratio"] <= 1.0
+
+
+class TestColorRangeDetection:
+    """Tests for color range detection."""
+
+    def test_detect_color_range_returns_dict(self):
+        """detect_color_range always returns a dict with expected keys."""
+        result = detect_color_range("nonexistent.mp4")
+        assert isinstance(result, dict)
+        assert "range_type" in result
+        assert "y_low" in result
+        assert "y_high" in result
+
+    def test_detect_color_range_nonexistent_file(self):
+        """detect_color_range handles missing files gracefully."""
+        result = detect_color_range("nonexistent_file_12345.mp4")
+        assert result["range_type"] == "unknown"
+
+    def test_detect_color_range_real_video(self):
+        """Integration test with a real video."""
+        import os
+        test_data = Path("test_data")
+        if not test_data.exists():
+            pytest.skip("No test data available")
+        videos = list(test_data.glob("*.mp4"))
+        if not videos:
+            pytest.skip("No test video available")
+
+        result = detect_color_range(str(videos[0]))
+        assert result["range_type"] in ("limited", "full", "unknown")
+        assert isinstance(result["y_low"], int)
+        assert isinstance(result["y_high"], int)
+
+
+class TestProbeEnhanced:
+    """Tests for enhanced probe with VFR and color info."""
+
+    def test_probe_returns_vfr_fields(self):
+        """probe() now includes vfr_mode and color_range."""
+        import os
+        test_data = Path("test_data")
+        if not test_data.exists():
+            pytest.skip("No test data available")
+        videos = list(test_data.glob("*.mp4"))
+        if not videos:
+            pytest.skip("No test video available")
+
+        meta = probe(str(videos[0]))
+        assert "vfr_mode" in meta
+        assert "color_range" in meta
+        assert "has_audio" in meta
+        assert "pixel_format" in meta
+        assert "bit_rate" in meta

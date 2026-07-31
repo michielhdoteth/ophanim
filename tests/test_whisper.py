@@ -49,20 +49,42 @@ class TestWhisperProvider:
         assert result.segment_count == 0
         assert result.text == ""
 
-    def test_transcribe_real_video(self):
-        """Integration test with real video from Downloads/Videos."""
-        dl = Path(r"C:\Users\michi\Downloads\Videos")
-        if not dl.exists():
-            pytest.skip("No test videos directory")
-        videos = list(dl.glob("*.mp4"))
-        if not videos:
-            pytest.skip("No test video available")
+    def test_transcribe_real_video(self, tmp_path):
+        """Integration test: transcribe a short generated video (mocked model)."""
+        import subprocess
+
+        video_path = tmp_path / "real_video.mp4"
+        # Create 2s video with silent audio track
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=2",
+             "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono",
+             "-shortest", "-c:v", "libx264", "-c:a", "aac",
+             str(video_path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if not video_path.exists():
+            pytest.skip("Could not create test video")
+
+        from unittest.mock import MagicMock
+
+        # Mock the faster_whisper model to avoid large download / slow inference
+        mock_model = MagicMock()
+        # Simulate faster_whisper transcribe API: returns (segments_iterator, info)
+        mock_seg = MagicMock()
+        mock_seg.start = 0.0
+        mock_seg.end = 1.0
+        mock_seg.text = " hello "
+        mock_seg.avg_logprob = -0.5
+        mock_info = MagicMock()
+        mock_info.language = "en"
+        mock_info.duration = 2.0
+        mock_model.transcribe.return_value = ([mock_seg], mock_info)
 
         provider = WhisperProvider({"model_size": "tiny"})
-        try:
-            result = provider.transcribe(str(videos[0]))
-            assert isinstance(result, Transcript)
-            assert result.duration_seconds > 0
-            assert len(result.language) > 0
-        finally:
-            provider.unload()
+        provider._model = mock_model  # Inject mock so _ensure_model is skipped
+        result = provider.transcribe(str(video_path))
+        assert isinstance(result, Transcript)
+        assert result.text == "hello"
+        assert result.language == "en"
+        assert result.duration_seconds == 2.0
+        provider.unload()

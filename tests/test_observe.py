@@ -121,8 +121,8 @@ class TestObserveCli:
         result = runner.invoke(app, ["observe", "--force", "test.mp4"])
         assert result.exit_code != 0  # File not found
 
-    def test_observe_with_save_memory(self):
-        result = runner.invoke(app, ["observe", "--save-memory", "test.mp4"])
+    def test_observe_with_save_observations(self):
+        result = runner.invoke(app, ["observe", "--save-observations", "test.mp4"])
         assert result.exit_code != 0  # File not found
 
     def test_observe_with_fps(self):
@@ -136,7 +136,7 @@ class TestObserveCli:
     def test_observe_with_all_options(self):
         result = runner.invoke(app, [
             "observe", "--mode", "fast", "--fps", "0.5", "--max-frames", "30",
-            "--question", "What color?", "--json", "--force", "--save-memory",
+            "--question", "What color?", "--json", "--force", "--save-observations",
             "test.mp4"
         ])
         assert result.exit_code != 0  # File not found

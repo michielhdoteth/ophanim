@@ -1,7 +1,7 @@
-"""Stable filesystem paths for Open Vision data (memory, downloads, runs).
+"""Stable filesystem paths for Open Vision data (observations, downloads, runs).
 
-Memory was previously written relative to the process CWD, so
-``openvision memory list`` looked empty whenever the shell was in a
+Observations were previously written relative to the process CWD, so
+``openvision observations list`` looked empty whenever the shell was in a
 different directory from the observe run. Paths now resolve under
 ``OPENVISION_HOME`` (default ``~/.openvision``) unless overridden in config.
 """
@@ -53,12 +53,36 @@ def _subpath(config: Optional[dict], key: str, default_name: str) -> Path:
     return path.resolve()
 
 
-def memory_dir(config: Optional[dict] = None) -> Path:
-    """Directory for ``--save-memory`` markdown notes (``memory/videos``)."""
-    base = _subpath(config, "memory", "memory")
+def observations_dir(config: Optional[dict] = None) -> Path:
+    """Directory for saved observation markdown notes (``observations/videos``).
+
+    Resolves to ``~/.openvision/observations/videos/`` by default.
+    Migrates from the legacy ``~/.openvision/memory/`` path if present.
+    """
+    # Auto-migrate from legacy memory/ path
+    _migrate_memory_to_observations(config)
+
+    base = _subpath(config, "observations", "observations")
     videos = base / "videos"
     videos.mkdir(parents=True, exist_ok=True)
     return videos
+
+
+def _migrate_memory_to_observations(config: Optional[dict] = None) -> None:
+    """Migrate data from ~/.openvision/memory/ to ~/.openvision/observations/.
+
+    Silent no-op if migration is not needed.
+    """
+    home = get_home(config)
+    old_dir = home / "memory"
+    new_base = home / "observations"
+    if old_dir.exists() and not new_base.exists():
+        import shutil
+        new_base.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(old_dir), str(new_base))
+
+
+
 
 
 def downloads_dir(config: Optional[dict] = None) -> Path:

@@ -1,6 +1,9 @@
 """Tests for VLM providers."""
 import pytest
 import numpy as np
+import httpx
+import socket
+from unittest.mock import patch
 
 from openvision.providers.base import VlmProvider, VlmResponse, TokenUsage
 from openvision.providers.lmstudio import LmStudioProvider
@@ -9,6 +12,43 @@ from openvision.providers.ollama import OllamaProvider
 from openvision.providers.llamacpp import LlamaCppProvider
 from openvision.providers.cloud import CloudProvider
 from openvision.providers.registry import ProviderRegistry, _extract_models
+
+
+# ------------------------------------------------------------------
+# Service availability cache (check once, skip fast if not running)
+# ------------------------------------------------------------------
+
+def _port_open(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Quick TCP check — returns True if port is reachable."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (OSError, socket.timeout):
+        return False
+
+
+# Module-level cache: only checks each service once across all tests
+_SERVICE_CACHE: dict[str, bool] = {}
+
+
+def _is_available(name: str, host: str, port: int) -> bool:
+    if name not in _SERVICE_CACHE:
+        _SERVICE_CACHE[name] = _port_open(host, port)
+    return _SERVICE_CACHE[name]
+
+
+lmstudio_available = pytest.mark.skipif(
+    not _is_available("lmstudio", "localhost", 1234),
+    reason="LM Studio not running on :1234",
+)
+ollama_available = pytest.mark.skipif(
+    not _is_available("ollama", "localhost", 11434),
+    reason="Ollama not running on :11434",
+)
+llamacpp_available = pytest.mark.skipif(
+    not _is_available("llamacpp", "localhost", 8080),
+    reason="llama.cpp not running on :8080",
+)
 
 
 # ------------------------------------------------------------------
@@ -137,18 +177,15 @@ class TestOpenAICompatProvider:
 
     def test_describe_frames_truncated(self):
         """More than 10 frames gets truncated."""
-        config = {
-            "base_url": "http://localhost:19999/v1",
-            "model": "test",
-            "timeout": 2,
-        }
-        provider = OpenAICompatProvider(config)
+        provider = OpenAICompatProvider({})
         try:
             frames = [
                 (float(i), np.ones((10, 10, 3), dtype=np.uint8) * 128)
                 for i in range(15)
             ]
-            result = provider.describe_frames(frames, "test")
+            mock_resp = {"choices": [{"message": {"content": "ok"}}], "usage": {}}
+            with patch.object(provider, "_chat_completion", return_value=mock_resp):
+                result = provider.describe_frames(frames, "test")
             lines = result.split("\n")
             assert len(lines) == 11  # 10 frames + 1 truncation line
             assert any("truncated" in line for line in lines)
@@ -157,15 +194,12 @@ class TestOpenAICompatProvider:
 
     def test_describe_frames_timestamps(self):
         """Frames are formatted as [MM:SS] in output."""
-        config = {
-            "base_url": "http://localhost:19999/v1",
-            "model": "test",
-            "timeout": 2,
-        }
-        provider = OpenAICompatProvider(config)
+        provider = OpenAICompatProvider({})
         try:
             frames = [(65.0, np.ones((10, 10, 3), dtype=np.uint8) * 128)]
-            result = provider.describe_frames(frames, "test")
+            mock_resp = {"choices": [{"message": {"content": "ok"}}], "usage": {}}
+            with patch.object(provider, "_chat_completion", return_value=mock_resp):
+                result = provider.describe_frames(frames, "test")
             assert "[01:05]" in result
         finally:
             provider.close()
@@ -174,25 +208,30 @@ class TestOpenAICompatProvider:
         config = {
             "base_url": "http://localhost:9999/v1",
             "model": "test",
+            "timeout": 2,
         }
         provider = OpenAICompatProvider(config)
         try:
             img = np.ones((10, 10, 3), dtype=np.uint8)
             result = provider.describe_image(img, "test")
             assert isinstance(result, VlmResponse)
-            assert "Could not connect" in result.content
+            assert "Could not connect" in result.content or "timed out" in result.content
         finally:
             provider.close()
 
     def test_health_check_bad_url(self):
-        provider = OpenAICompatProvider({"base_url": "http://localhost:19999/v1"})
+        provider = OpenAICompatProvider(
+            {"base_url": "http://localhost:19999/v1", "timeout": 2}
+        )
         try:
             assert provider.check_health() is False
         finally:
             provider.close()
 
     def test_list_models_bad_url(self):
-        provider = OpenAICompatProvider({"base_url": "http://localhost:19999/v1"})
+        provider = OpenAICompatProvider(
+            {"base_url": "http://localhost:19999/v1", "timeout": 2}
+        )
         try:
             models = provider.list_models()
             assert models == []
@@ -204,6 +243,7 @@ class TestOpenAICompatProvider:
 # LM Studio provider
 # ------------------------------------------------------------------
 
+@lmstudio_available
 class TestLmStudioProvider:
     """Unit / integration tests for LmStudioProvider."""
 
@@ -301,18 +341,15 @@ class TestLmStudioProvider:
             provider.close()
 
     def test_describe_frames_truncated(self):
-        config = {
-            "base_url": "http://localhost:19999/v1",
-            "model": "google/gemma-4-e2b",
-            "timeout": 2,
-        }
-        provider = LmStudioProvider(config)
+        provider = LmStudioProvider({})
         try:
             frames = [
                 (float(i), np.ones((10, 10, 3), dtype=np.uint8) * 128)
                 for i in range(15)
             ]
-            result = provider.describe_frames(frames, "test")
+            mock_resp = {"choices": [{"message": {"content": "ok"}}], "usage": {}}
+            with patch.object(provider, "_chat_completion", return_value=mock_resp):
+                result = provider.describe_frames(frames, "test")
             lines = result.split("\n")
             assert len(lines) == 11
             assert any("truncated" in line for line in lines)
@@ -323,6 +360,7 @@ class TestLmStudioProvider:
         config = {
             "base_url": "http://localhost:9999/v1",
             "model": "google/gemma-4-e2b",
+            "timeout": 2,
         }
         provider = LmStudioProvider(config)
         try:
@@ -334,7 +372,9 @@ class TestLmStudioProvider:
             provider.close()
 
     def test_health_check_bad_url(self):
-        provider = LmStudioProvider({"base_url": "http://localhost:19999/v1"})
+        provider = LmStudioProvider(
+            {"base_url": "http://localhost:19999/v1", "timeout": 2}
+        )
         try:
             assert provider.check_health() is False
         finally:
@@ -345,6 +385,7 @@ class TestLmStudioProvider:
 # Ollama provider
 # ------------------------------------------------------------------
 
+@ollama_available
 class TestOllamaProvider:
     """Tests for the Ollama native API provider."""
 
@@ -390,18 +431,15 @@ class TestOllamaProvider:
             provider.close()
 
     def test_describe_frames_truncated(self):
-        config = {
-            "base_url": "http://localhost:19999",
-            "model": "test",
-            "timeout": 2,
-        }
-        provider = OllamaProvider(config)
+        provider = OllamaProvider({})
         try:
             frames = [
                 (float(i), np.ones((10, 10, 3), dtype=np.uint8) * 128)
                 for i in range(15)
             ]
-            result = provider.describe_frames(frames, "test")
+            mock_resp = {"message": {"content": "ok"}}
+            with patch.object(provider, "_chat_completion", return_value=mock_resp):
+                result = provider.describe_frames(frames, "test")
             lines = result.split("\n")
             assert len(lines) == 11
             assert any("truncated" in line for line in lines)
@@ -409,15 +447,12 @@ class TestOllamaProvider:
             provider.close()
 
     def test_describe_frames_timestamps(self):
-        config = {
-            "base_url": "http://localhost:19999",
-            "model": "test",
-            "timeout": 2,
-        }
-        provider = OllamaProvider(config)
+        provider = OllamaProvider({})
         try:
             frames = [(65.0, np.ones((10, 10, 3), dtype=np.uint8) * 128)]
-            result = provider.describe_frames(frames, "test")
+            mock_resp = {"message": {"content": "ok"}}
+            with patch.object(provider, "_chat_completion", return_value=mock_resp):
+                result = provider.describe_frames(frames, "test")
             assert "[01:05]" in result
         finally:
             provider.close()
@@ -426,6 +461,7 @@ class TestOllamaProvider:
         config = {
             "base_url": "http://localhost:9999",
             "model": "test",
+            "timeout": 2,
         }
         provider = OllamaProvider(config)
         try:
@@ -441,6 +477,7 @@ class TestOllamaProvider:
         config = {
             "base_url": "http://localhost:9999",
             "model": "test",
+            "timeout": 2,
         }
         provider = OllamaProvider(config)
         try:
@@ -451,7 +488,9 @@ class TestOllamaProvider:
             provider.close()
 
     def test_health_check_bad_url(self):
-        provider = OllamaProvider({"base_url": "http://localhost:19999"})
+        provider = OllamaProvider(
+            {"base_url": "http://localhost:19999", "timeout": 2}
+        )
         try:
             assert provider.check_health() is False
         finally:
@@ -467,7 +506,9 @@ class TestOllamaProvider:
             provider.close()
 
     def test_list_models_bad_url(self):
-        provider = OllamaProvider({"base_url": "http://localhost:19999"})
+        provider = OllamaProvider(
+            {"base_url": "http://localhost:19999", "timeout": 2}
+        )
         try:
             models = provider.list_models()
             assert models == []
@@ -526,9 +567,11 @@ class TestOllamaProvider:
             provider.close()
 
     def test_pull_model_bad_url(self):
-        provider = OllamaProvider({"base_url": "http://localhost:19999"})
+        provider = OllamaProvider({"base_url": "http://localhost:19999", "timeout": 2})
         try:
-            result = provider.pull_model("nonexistent")
+            import httpx
+            with patch.object(provider._client, "post", side_effect=httpx.ConnectError("mocked")):
+                result = provider.pull_model("nonexistent")
             assert result is False
         finally:
             provider.close()
@@ -538,6 +581,7 @@ class TestOllamaProvider:
 # llama.cpp provider
 # ------------------------------------------------------------------
 
+@llamacpp_available
 class TestLlamaCppProvider:
     """Tests for the llama.cpp provider (thin wrapper over OpenAICompatProvider)."""
 
@@ -578,6 +622,7 @@ class TestLlamaCppProvider:
         config = {
             "base_url": "http://localhost:9999/v1",
             "model": "test",
+            "timeout": 2,
         }
         provider = LlamaCppProvider(config)
         try:
@@ -589,7 +634,9 @@ class TestLlamaCppProvider:
             provider.close()
 
     def test_health_check_bad_url(self):
-        provider = LlamaCppProvider({"base_url": "http://localhost:19999/v1"})
+        provider = LlamaCppProvider(
+            {"base_url": "http://localhost:19999/v1", "timeout": 2}
+        )
         try:
             assert provider.check_health() is False
         finally:
@@ -605,7 +652,9 @@ class TestLlamaCppProvider:
             provider.close()
 
     def test_list_models_bad_url(self):
-        provider = LlamaCppProvider({"base_url": "http://localhost:19999/v1"})
+        provider = LlamaCppProvider(
+            {"base_url": "http://localhost:19999/v1", "timeout": 2}
+        )
         try:
             models = provider.list_models()
             assert models == []
@@ -702,25 +751,30 @@ class TestCloudProvider:
         config = {
             "base_url": "http://localhost:9999/v1",
             "model": "test",
+            "timeout": 2,
         }
         provider = CloudProvider(config)
         try:
             img = np.ones((10, 10, 3), dtype=np.uint8)
             result = provider.describe_image(img, "test")
             assert isinstance(result, VlmResponse)
-            assert "Could not connect" in result.content
+            assert "Could not connect" in result.content or "timed out" in result.content
         finally:
             provider.close()
 
     def test_health_check_bad_url(self):
-        provider = CloudProvider({"base_url": "http://localhost:19999/v1"})
+        provider = CloudProvider(
+            {"base_url": "http://localhost:19999/v1", "timeout": 2}
+        )
         try:
             assert provider.check_health() is False
         finally:
             provider.close()
 
     def test_list_models_bad_url(self):
-        provider = CloudProvider({"base_url": "http://localhost:19999/v1"})
+        provider = CloudProvider(
+            {"base_url": "http://localhost:19999/v1", "timeout": 2}
+        )
         try:
             models = provider.list_models()
             assert models == []

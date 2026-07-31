@@ -106,6 +106,7 @@ def smart_sample(
     max_resolution: int = 768,
     scene_threshold: float = 30.0,
     dedup_threshold: float = 0.95,
+    vfr_mode: str = "unknown",
 ) -> list[dict]:
     """
     Full smart sampling pipeline:
@@ -117,8 +118,8 @@ def smart_sample(
     Returns:
         List of selected frame dicts with {index, timestamp, timestamp_str, image}
     """
-    # Step 1: Extract frames
-    frames = extract_frames(path, fps=fps, max_frames=max_frames, max_resolution=max_resolution)
+    # Step 1: Extract frames (VFR-aware)
+    frames = extract_frames(path, fps=fps, max_frames=max_frames, max_resolution=max_resolution, vfr_mode=vfr_mode)
 
     if not frames:
         return []
@@ -173,6 +174,7 @@ def adaptive_sample(
     dense_fps: float = 2.0,     # FPS during dense windows
     base_fps: float = 0.25,     # FPS during static segments
     scene_threshold: float = 30.0,
+    vfr_mode: str = "unknown",
 ) -> list[dict]:
     """
     Scene-adaptive frame sampling.
@@ -201,7 +203,7 @@ def adaptive_sample(
 
     # Step 2: Extract a coarse sample for scene detection
     # Use 1fps for scene detection (covers full video)
-    coarse_frames = extract_frames(path, fps=1, max_frames=300, max_resolution=max_resolution)
+    coarse_frames = extract_frames(path, fps=1, max_frames=300, max_resolution=max_resolution, vfr_mode=vfr_mode)
 
     if not coarse_frames:
         return []

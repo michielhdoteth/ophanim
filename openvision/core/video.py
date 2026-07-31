@@ -12,7 +12,8 @@ def probe(path: str) -> dict:
     """
     Extract video metadata without full decode.
 
-    Returns dict with: duration_seconds, width, height, fps, codec, frame_count
+    Returns dict with: duration_seconds, width, height, fps, codec, frame_count,
+    vfr_mode (cfr/vfr/unknown), color_range, audio_stream
     """
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
@@ -29,6 +30,9 @@ def probe(path: str) -> dict:
 
     cap.release()
 
+    # Enhanced metadata from ffprobe (VFR detection, color range, audio)
+    enhanced = _probe_ffprobe(path)
+
     return {
         "duration_seconds": duration,
         "width": width,
@@ -36,7 +40,170 @@ def probe(path: str) -> dict:
         "fps": fps,
         "codec": codec,
         "frame_count": frame_count,
+        "vfr_mode": enhanced.get("vfr_mode", "unknown"),
+        "color_range": enhanced.get("color_range", "unknown"),
+        "has_audio": enhanced.get("has_audio", False),
+        "bit_rate": enhanced.get("bit_rate", 0),
+        "pixel_format": enhanced.get("pixel_format", "unknown"),
     }
+
+
+def _probe_ffprobe(path: str) -> dict:
+    """
+    Use ffprobe to extract enhanced metadata (VFR, color range, audio).
+    Falls back gracefully if ffprobe unavailable.
+    """
+    result = {
+        "vfr_mode": "unknown",
+        "color_range": "unknown",
+        "has_audio": False,
+        "bit_rate": 0,
+        "pixel_format": "unknown",
+    }
+
+    try:
+        # Get pixel format and color info
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=pix_fmt,color_range,color_space,color_transfer,color_primaries",
+            "-show_entries", "format=bit_rate,duration",
+            "-show_entries", "stream=index",
+            "-select_streams", "a",
+            "-of", "json",
+            path,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if proc.returncode != 0:
+            return result
+
+        import json
+        data = json.loads(proc.stdout)
+
+        # Check for audio stream
+        streams = data.get("streams", [])
+        for s in streams:
+            if s.get("codec_type") == "audio":
+                result["has_audio"] = True
+                break
+
+        # Get video stream info
+        for s in streams:
+            if s.get("codec_type") == "video" or "pix_fmt" in s:
+                result["pixel_format"] = s.get("pix_fmt", "unknown")
+                result["color_range"] = s.get("color_range", "unknown")
+                break
+
+        fmt = data.get("format", {})
+        result["bit_rate"] = int(fmt.get("bit_rate", 0))
+
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError, KeyError):
+        pass
+
+    return result
+
+
+def detect_vfr(path: str) -> dict:
+    """
+    Detect variable frame rate using ffmpeg's vfrdet filter.
+
+    This is the most accurate way to detect VFR - it analyzes actual
+    frame presentation timestamps rather than container metadata.
+
+    Returns dict with:
+        is_vfr: bool
+        mode: "cfr" | "vfr"
+        variable_frames: int (count of VFR frames)
+        constant_frames: int (count of CFR frames)
+        vfr_ratio: float (0.0 = pure CFR, 1.0 = pure VFR)
+    """
+    result = {
+        "is_vfr": False,
+        "mode": "unknown",
+        "variable_frames": 0,
+        "constant_frames": 0,
+        "vfr_ratio": 0.0,
+    }
+
+    try:
+        # Run vfrdet filter - outputs to stderr
+        cmd = [
+            "ffmpeg", "-i", path,
+            "-vf", "vfrdet",
+            "-f", "null", "-",
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+        # Parse vfrdet output from stderr
+        # Format: [Parsed_vfrdet_0 @ ...] VFR detect: N frames ... V:count ... C:count ...
+        for line in proc.stderr.split("\n"):
+            if "vfrdet" in line and ("V:" in line or "C:" in line):
+                import re
+                # Extract V: and C: counts
+                v_match = re.search(r'V:(\d+)', line)
+                c_match = re.search(r'C:(\d+)', line)
+                if v_match and c_match:
+                    v_count = int(v_match.group(1))
+                    c_count = int(c_match.group(1))
+                    result["variable_frames"] = v_count
+                    result["constant_frames"] = c_count
+                    total = v_count + c_count
+                    if total > 0:
+                        result["vfr_ratio"] = v_count / total
+                        result["is_vfr"] = v_count > c_count
+                        result["mode"] = "vfr" if result["is_vfr"] else "cfr"
+                break
+
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    return result
+
+
+def detect_color_range(path: str) -> dict:
+    """
+    Detect video color range (limited vs full) using ffmpeg's colordetect filter.
+
+    Returns dict with:
+        range_type: "limited" | "full" | "unknown"
+        y_low: int (min Y value)
+        y_high: int (max Y value)
+    """
+    result = {
+        "range_type": "unknown",
+        "y_low": 0,
+        "y_high": 255,
+    }
+
+    try:
+        cmd = [
+            "ffmpeg", "-i", path,
+            "-vf", "colordetect",
+            "-f", "null", "-",
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+        for line in proc.stderr.split("\n"):
+            if "colordetect" in line:
+                import re
+                # Parse Y range
+                y_match = re.search(r'Y:(\d+)\s*->\s*(\d+)', line)
+                if y_match:
+                    y_low = int(y_match.group(1))
+                    y_high = int(y_match.group(2))
+                    result["y_low"] = y_low
+                    result["y_high"] = y_high
+                    # Limited range: 16-235, Full range: 0-255
+                    if y_low >= 14 and y_high <= 240:
+                        result["range_type"] = "limited"
+                    elif y_low <= 2 and y_high >= 250:
+                        result["range_type"] = "full"
+                break
+
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    return result
 
 
 def extract_frames(
@@ -44,19 +211,35 @@ def extract_frames(
     fps: float = 0.5,
     max_frames: int = 60,
     max_resolution: int = 768,
+    vfr_mode: str = "unknown",
 ) -> list[dict]:
     """
     Extract frames from video at given sampling rate.
+
+    For VFR (variable frame rate) videos, uses timestamp-based extraction
+    via ffmpeg for more accurate sampling. For CFR videos, uses OpenCV
+    frame-index approach (faster).
 
     Args:
         path: Path to video file
         fps: Target frames per second to extract
         max_frames: Maximum number of frames to return
         max_resolution: Longest side in pixels for downscaling
+        vfr_mode: "cfr", "vfr", or "unknown" (auto-detects if unknown)
 
     Returns:
         List of dicts: {index, timestamp, timestamp_str, image (np.ndarray)}
     """
+    # Auto-detect VFR if not specified
+    if vfr_mode == "unknown":
+        vfr_info = detect_vfr(path)
+        vfr_mode = vfr_info.get("mode", "cfr")
+
+    # For VFR videos, use ffmpeg timestamp-based extraction (more accurate)
+    if vfr_mode == "vfr":
+        return _extract_frames_vfr(path, fps, max_frames, max_resolution)
+
+    # Standard CFR extraction via OpenCV
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Cannot open video file: {path}")
@@ -107,6 +290,92 @@ def extract_frames(
         sample_idx += 1
 
     cap.release()
+    return frames
+
+
+def _extract_frames_vfr(
+    path: str,
+    fps: float,
+    max_frames: int,
+    max_resolution: int,
+) -> list[dict]:
+    """
+    Extract frames from VFR video using ffmpeg timestamp-based extraction.
+
+    VFR videos have irregular frame timing, so frame-index-based sampling
+    (OpenCV) produces inaccurate timestamps. Instead, we use ffmpeg's fps
+    filter which correctly handles variable timestamps.
+    """
+    video = Path(path)
+    if not video.exists():
+        raise FileNotFoundError(f"Video not found: {path}")
+
+    meta = probe(path)
+    duration = meta["duration_seconds"]
+
+    # Calculate target fps to stay within frame budget
+    target_fps = min(fps, max_frames / max(1, duration))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cmd = [
+            "ffmpeg", "-i", str(video),
+            "-vf", f"fps={target_fps:.4f}",
+            "-vsync", "vfr",
+            os.path.join(tmpdir, "frame_%06d.jpg"),
+        ]
+
+        # Also capture showinfo for timestamps
+        cmd_with_info = [
+            "ffmpeg", "-i", str(video),
+            "-vf", f"fps={target_fps:.4f},showinfo",
+            "-vsync", "vfr",
+            os.path.join(tmpdir, "frame_%06d.jpg"),
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd_with_info, capture_output=True, text=True, timeout=600,
+            )
+        except subprocess.TimeoutExpired:
+            # Fallback to simpler command
+            subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+
+        # Parse timestamps from showinfo
+        timestamps = []
+        for line in result.stderr.split("\n"):
+            if "showinfo" in line and "pts_time:" in line:
+                try:
+                    pts_part = line.split("pts_time:")[1].split()[0]
+                    timestamps.append(float(pts_part))
+                except (IndexError, ValueError):
+                    continue
+
+        # Read extracted frames
+        frames = []
+        frame_files = sorted(Path(tmpdir).glob("frame_*.jpg"))
+
+        for i, fpath in enumerate(frame_files):
+            if i >= max_frames:
+                break
+            img = cv2.imread(str(fpath))
+            if img is None:
+                continue
+            img = _downscale(img, max_resolution)
+
+            # Use parsed timestamp or fallback to estimation
+            if i < len(timestamps):
+                ts = timestamps[i]
+            else:
+                ts = i * (duration / max(1, len(frame_files)))
+
+            frames.append({
+                "index": i,
+                "timestamp": ts,
+                "timestamp_str": _format_timestamp(ts),
+                "image": img,
+                "reason": "vfr-uniform",
+            })
+
     return frames
 
 

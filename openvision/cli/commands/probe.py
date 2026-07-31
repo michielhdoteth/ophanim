@@ -7,7 +7,7 @@ from rich.table import Table
 from rich.panel import Panel
 import json
 
-from openvision.core.video import probe, estimate_processing_cost
+from openvision.core.video import probe, estimate_processing_cost, detect_vfr, detect_color_range
 from openvision.models import ProbeResult
 
 console = Console()
@@ -16,11 +16,13 @@ console = Console()
 def probe_cmd(
     path: str = typer.Argument(..., help="Path to video file", exists=True),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    deep: bool = typer.Option(False, "--deep", help="Run VFR detection and color range analysis"),
 ):
     """
     Extract metadata from a video file without processing it.
     
     Returns duration, resolution, FPS, codec, and estimated processing cost.
+    With --deep, also detects VFR mode and color range.
     """
     # Validate file exists
     video_path = Path(path)
@@ -35,6 +37,17 @@ def probe_cmd(
         console.print(f"[red]Error probing video:[/red] {e}")
         raise typer.Exit(code=1)
     
+    # Deep analysis: VFR detection + color range
+    if deep:
+        console.print("[dim]Running deep analysis (VFR + color range)...[/dim]")
+        vfr_info = detect_vfr(str(video_path))
+        color_info = detect_color_range(str(video_path))
+        metadata["vfr_mode"] = vfr_info.get("mode", metadata.get("vfr_mode", "unknown"))
+        metadata["vfr_variable_frames"] = vfr_info.get("variable_frames", 0)
+        metadata["vfr_constant_frames"] = vfr_info.get("constant_frames", 0)
+        metadata["vfr_ratio"] = vfr_info.get("vfr_ratio", 0.0)
+        metadata["color_range"] = color_info.get("range_type", "unknown")
+    
     # Estimate processing cost
     cost = estimate_processing_cost(metadata)
     metadata["estimated_processing_cost"] = cost
@@ -44,10 +57,10 @@ def probe_cmd(
     if json_output:
         console.print(json.dumps(result.model_dump(), indent=2))
     else:
-        _display_probe_table(result, str(video_path))
+        _display_probe_table(result, str(video_path), deep)
 
 
-def _display_probe_table(result: ProbeResult, path: str):
+def _display_probe_table(result: ProbeResult, path: str, deep: bool = False):
     """Display probe results in a rich table."""
     table = Table(title=f"Video Probe: {path}", title_style="bold cyan")
     table.add_column("Property", style="cyan")
@@ -58,6 +71,24 @@ def _display_probe_table(result: ProbeResult, path: str):
     table.add_row("FPS", f"{result.fps:.2f}")
     table.add_row("Codec", result.codec)
     table.add_row("Frame Count", str(result.frame_count))
+
+    # VFR info
+    vfr_mode = getattr(result, "vfr_mode", "unknown")
+    if vfr_mode != "unknown":
+        vfr_color = "yellow" if vfr_mode == "vfr" else "green"
+        table.add_row("Frame Rate Mode", f"[{vfr_color}]{vfr_mode.upper()}[/{vfr_color}]")
+        if deep:
+            vfr_ratio = getattr(result, "vfr_ratio", 0.0)
+            v_var = getattr(result, "vfr_variable_frames", 0)
+            v_const = getattr(result, "vfr_constant_frames", 0)
+            table.add_row("VFR Analysis", f"{v_var} variable / {v_const} constant ({vfr_ratio:.1%} VFR)")
+
+    # Color range
+    color_range = getattr(result, "color_range", "unknown")
+    if color_range != "unknown":
+        table.add_row("Color Range", color_range)
+
+    table.add_row("Has Audio", "Yes" if getattr(result, "has_audio", False) else "No")
     table.add_row("Estimated Cost", result.estimated_processing_cost.upper())
     
     console.print(table)
@@ -66,6 +97,11 @@ def _display_probe_table(result: ProbeResult, path: str):
     cost_colors = {"low": "green", "medium": "yellow", "high": "red"}
     color = cost_colors.get(result.estimated_processing_cost, "white")
     console.print(f"\nEstimated processing cost: [{color}]{result.estimated_processing_cost.upper()}[/{color}]")
+
+    # VFR optimization tips
+    if vfr_mode == "vfr":
+        console.print("\n[yellow]VFR detected![/yellow] Frame timestamps may be irregular.")
+        console.print("[dim]Tip: Open Vision uses ffmpeg timestamp-based extraction for VFR videos.[/dim]")
 
 
 def _format_duration(seconds: float) -> str:
