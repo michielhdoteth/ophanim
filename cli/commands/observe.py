@@ -13,16 +13,16 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.progress import Progress, BarColumn, TextColumn, SpinnerColumn
 
-from openvision.core.video import probe, extract_frames, estimate_processing_cost, auto_fps, _downscale, detect_vfr, detect_color_range
-from openvision.core.image import downscale, encode_base64, save_frame, load_image
-from openvision.core.sampling import smart_sample
-from openvision.core.gpu import auto_downgrade_mode, log_vram
-from openvision.providers.registry import ProviderRegistry
-from openvision.providers.whisper import WhisperProvider, Transcript
-from openvision.providers.base import VlmResponse, TokenUsage
-from openvision.storage.cache import RunCache
-from openvision.storage.config import load_config, get_mode_config
-from openvision.models import (
+from core.video import probe, extract_frames, estimate_processing_cost, auto_fps, _downscale, detect_vfr, detect_color_range
+from core.image import downscale, encode_base64, save_frame, load_image
+from core.sampling import smart_sample
+from core.gpu import auto_downgrade_mode, log_vram
+from providers.registry import ProviderRegistry
+from providers.whisper import WhisperProvider, Transcript
+from providers.base import VlmResponse, TokenUsage
+from storage.cache import RunCache
+from storage.config import load_config, get_mode_config
+from models import (
     ObserveResult, ImageResult, TimelineEntry, ProbeResult,
 )
 
@@ -77,7 +77,7 @@ def observe_cmd(
 ):
     """Analyze a video or image and return observations."""
     # Validate file exists or is URL
-    from openvision.core.download import is_url
+    from core.download import is_url
     input_path = Path(path)
     is_remote = is_url(path)
     if not is_remote and not input_path.exists():
@@ -90,8 +90,8 @@ def observe_cmd(
 
     # Download from URL if remote (native yt-dlp into openvision_HOME/downloads)
     if is_remote:
-        from openvision.core.download import download_video
-        from openvision.storage.paths import downloads_dir
+        from core.download import download_video
+        from storage.paths import downloads_dir
         dl_dir = downloads_dir(config)
         console.print(f"[dim]Downloading from URL into {dl_dir}...[/dim]")
         try:
@@ -125,17 +125,17 @@ def observe_cmd(
     focus_start = None
     focus_end = None
     if start_time:
-        from openvision.core.video import parse_time
+        from core.video import parse_time
         focus_start = parse_time(start_time)
     if end_time:
-        from openvision.core.video import parse_time
+        from core.video import parse_time
         focus_end = parse_time(end_time)
     has_focus = focus_start is not None or focus_end is not None
 
     # Parse cue timestamps
     cue_timestamps = None
     if timestamps:
-        from openvision.core.video import parse_time
+        from core.video import parse_time
         try:
             cue_timestamps = [parse_time(t.strip()) for t in timestamps.split(",")]
         except ValueError as e:
@@ -287,7 +287,7 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
     # Check cache (stable under openvision_HOME when relative)
     cache_dir = config.get("cache", {}).get("directory", "runs")
     if not Path(cache_dir).is_absolute():
-        from openvision.storage.paths import runs_dir
+        from storage.paths import runs_dir
         cache_dir = str(runs_dir(config))
     cache = RunCache(cache_dir)
     key = cache.cache_key(str(path), mode, fps, resolution)
@@ -341,7 +341,7 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
     has_focus = focus_start is not None or focus_end is not None
 
     if has_focus:
-        from openvision.core.video import auto_fps_focus
+        from core.video import auto_fps_focus
         focus_duration = (focus_end or duration) - (focus_start or 0)
         focus_max = auto_fps_focus(focus_duration)
         console.print(f"[dim]Focus range: {_fmt_time(focus_start or 0)} - {_fmt_time(focus_end or duration)} ({focus_duration:.0f}s, budget: {focus_max} frames)[/dim]")
@@ -350,19 +350,19 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
         console.print("[dim]Transcript-only mode: skipping frame extraction[/dim]")
         frames = []
     elif detail == "efficient":
-        from openvision.core.video import extract_keyframes_ffmpeg, dedupe_frames_ffmpeg
+        from core.video import extract_keyframes_ffmpeg, dedupe_frames_ffmpeg
         console.print("[dim]Efficient mode: extracting keyframes (cap 50)[/dim]")
         frames = extract_keyframes_ffmpeg(str(path), max_frames=50, max_resolution=resolution)
         frames = dedupe_frames_ffmpeg(frames)
     elif detail == "token-burner":
-        from openvision.core.video import extract_scene_frames_ffmpeg, dedupe_frames_ffmpeg
+        from core.video import extract_scene_frames_ffmpeg, dedupe_frames_ffmpeg
         console.print("[dim]Token-burner mode: full scene detection (uncapped)[/dim]")
         frames = extract_scene_frames_ffmpeg(str(path), max_frames=9999, max_resolution=resolution)
         frames = dedupe_frames_ffmpeg(frames)
     else:
         # balanced (default)
         if duration > 120:
-            from openvision.core.sampling import adaptive_sample
+            from core.sampling import adaptive_sample
             frames = adaptive_sample(str(path), max_frames=actual_max, max_resolution=resolution, vfr_mode=vfr_mode)
         else:
             frames = smart_sample(str(path), fps=fps, max_frames=actual_max, max_resolution=resolution, vfr_mode=vfr_mode)
@@ -382,8 +382,8 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
 
         if diarize_audio and transcript and transcript.segments:
             try:
-                from openvision.providers.diarizer import DiarizerProvider, merge_transcript_with_diarization
-                from openvision.core.audio import extract_audio
+                from providers.diarizer import DiarizerProvider, merge_transcript_with_diarization
+                from core.audio import extract_audio
 
                 console.print("[dim]Running speaker diarization...[/dim]")
                 tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
@@ -466,7 +466,7 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
     # Extract pinned frames at specific timestamps
     pinned_frames = []
     if cue_timestamps:
-        from openvision.core.video import extract_at_timestamps
+        from core.video import extract_at_timestamps
         pinned_frames = extract_at_timestamps(str(path), cue_timestamps, resolution)
 
     # Merge pinned frames into main frame list (dedup by timestamp)
@@ -496,7 +496,7 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
 
     # --- raw-frames mode: skip VLM, return frames + audio timeline ---
     if raw_frames:
-        from openvision.models import RawFrame, TimelineEntry
+        from models import RawFrame, TimelineEntry
         raw = [
             RawFrame(index=i, timestamp=f["timestamp"], path=f["path"])
             for i, f in enumerate(frames)
@@ -634,8 +634,8 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
     # Apply diarization if requested
     if diarize_audio and transcript and transcript.segments:
         try:
-            from openvision.providers.diarizer import DiarizerProvider, merge_transcript_with_diarization
-            from openvision.core.audio import extract_audio
+            from providers.diarizer import DiarizerProvider, merge_transcript_with_diarization
+            from core.audio import extract_audio
 
             console.print("[dim]Running speaker diarization...[/dim]")
             tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
@@ -808,7 +808,7 @@ def _build_qa_summary(timeline: list, question: str) -> str:
 def _run_segmentation(path: Path, frames: list, config: dict, mode: str) -> Optional[dict]:
     """Run SAM segmentation on extracted frames. Returns segmentation data or None."""
     try:
-        from openvision.providers.sam import SamProvider
+        from providers.sam import SamProvider
     except ImportError:
         console.print("[yellow]Segmentation unavailable: install ultralytics (pip install ultralytics)[/yellow]")
         return None
@@ -852,8 +852,8 @@ def _run_segmentation(path: Path, frames: list, config: dict, mode: str) -> Opti
 
 def _run_grounding(query: str, frames: list, timeline: list, run_dir, config: dict) -> None:
     """Run LocateAnything grounding and merge results into the timeline."""
-    from openvision.providers.locate_anything import LocateAnythingProvider
-    from openvision.models import TimelineEntry
+    from providers.locate_anything import LocateAnythingProvider
+    from models import TimelineEntry
 
     locate_config = config.get("models", {}).get("locate", {})
 
@@ -948,7 +948,7 @@ def _save_observation_md(path: Path, result: ObserveResult, config: dict,
                     transcript: Optional[Transcript] = None):
     """Save observation as markdown ledger file under openvision_HOME (stable path)."""
     from datetime import date
-    from openvision.storage.paths import observations_dir
+    from storage.paths import observations_dir
 
     today = date.today().isoformat()
     video_name = path.stem

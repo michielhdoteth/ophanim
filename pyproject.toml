@@ -26,8 +26,11 @@ dependencies = [
 ]
 
 [project.scripts]
-openvision = "openvision.__main__:main"
-ov = "openvision.__main__:main"
+openvision = "cli.app:app"
+ov = "cli.app:app"
+
+[tool.setuptools]
+py-modules = ["models"]
 
 [tool.setuptools.packages.find]
-include = ["openvision*"]
+include = ["cli*", "core*", "providers*", "storage*"]

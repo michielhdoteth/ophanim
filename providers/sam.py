@@ -4,7 +4,7 @@ import numpy as np
 from pathlib import Path
 from typing import Optional
 
-from openvision.core.gpu import get_device, unload_model, log_vram
+from core.gpu import get_device, unload_model, log_vram
 
 logger = logging.getLogger(__name__)
 
@@ -328,7 +328,7 @@ class Sam3Provider:
         if self._loaded:
             return
 
-        from openvision.core.gpu import unload_model as gpu_unload, log_vram as gpu_log_vram
+        from core.gpu import unload_model as gpu_unload, log_vram as gpu_log_vram
 
         gpu_log_vram("before_sam3_load")
 
@@ -358,7 +358,7 @@ class Sam3Provider:
         self.model = None
         self.processor = None
         self._loaded = False
-        from openvision.core.gpu import unload_model
+        from core.gpu import unload_model
         unload_model()
         logger.info("SAM 3 unloaded from GPU")
 

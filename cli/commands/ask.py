@@ -6,12 +6,12 @@ from typing import Optional
 from rich.console import Console
 from rich.panel import Panel
 
-from openvision.core.video import probe
-from openvision.core.sampling import smart_sample, find_keyframes_for_question
-from openvision.providers.registry import ProviderRegistry
-from openvision.providers.base import TokenUsage
-from openvision.storage.config import load_config, get_mode_config
-from openvision.models import AskResult
+from core.video import probe
+from core.sampling import smart_sample, find_keyframes_for_question
+from providers.registry import ProviderRegistry
+from providers.base import TokenUsage
+from storage.config import load_config, get_mode_config
+from models import AskResult
 
 console = Console()
 
@@ -80,8 +80,8 @@ def ask_cmd(
     # --- raw-frames mode: skip VLM, return frame paths ---
     if raw_frames:
         import tempfile
-        from openvision.core.image import save_frame
-        from openvision.models import RawFrame
+        from core.image import save_frame
+        from models import RawFrame
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="openvision_raw_"))
         raw = []

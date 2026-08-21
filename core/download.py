@@ -61,7 +61,7 @@ def download_video(
     if output_dir is None:
         # Prefer stable Open Vision downloads dir; fall back to temp
         try:
-            from openvision.storage.paths import downloads_dir
+            from storage.paths import downloads_dir
 
             output_dir = str(downloads_dir())
         except Exception:

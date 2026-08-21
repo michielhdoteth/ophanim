@@ -6,11 +6,11 @@ from rich.table import Table
 from rich.panel import Panel
 import json
 
-from openvision.core.gpu import get_vram_info, get_gpu_name, check_safe_mode
-from openvision.storage.cache import RunCache
-from openvision.storage.config import load_config
-from openvision.models import StatusResult
-from openvision.providers.registry import ProviderRegistry
+from core.gpu import get_vram_info, get_gpu_name, check_safe_mode
+from storage.cache import RunCache
+from storage.config import load_config
+from models import StatusResult
+from providers.registry import ProviderRegistry
 
 console = Console()
 
@@ -30,7 +30,7 @@ def status_cmd(
     safety = check_safe_mode(config)
 
     # Paths + cache (stable under openvision_HOME)
-    from openvision.storage.paths import get_home, observations_dir, downloads_dir, runs_dir
+    from storage.paths import get_home, observations_dir, downloads_dir, runs_dir
 
     home = get_home(config)
     obs = observations_dir(config)

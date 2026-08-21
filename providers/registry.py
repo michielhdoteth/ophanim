@@ -4,7 +4,7 @@ Auto-discovers available providers and creates instances based on config.
 Supports explicit provider selection and automatic detection.
 """
 from typing import Optional
-from openvision.providers.base import VlmProvider
+from providers.base import VlmProvider
 
 
 # Provider class registry (lazy imports to avoid circular deps)
@@ -14,10 +14,10 @@ _PROVIDERS: dict[str, type[VlmProvider]] = {}
 def _get_providers() -> dict[str, type[VlmProvider]]:
     """Lazy-load provider classes to avoid import overhead."""
     if not _PROVIDERS:
-        from openvision.providers.lmstudio import LmStudioProvider
-        from openvision.providers.ollama import OllamaProvider
-        from openvision.providers.llamacpp import LlamaCppProvider
-        from openvision.providers.cloud import CloudProvider
+        from providers.lmstudio import LmStudioProvider
+        from providers.ollama import OllamaProvider
+        from providers.llamacpp import LlamaCppProvider
+        from providers.cloud import CloudProvider
 
         _PROVIDERS.update({
             "lmstudio": LmStudioProvider,

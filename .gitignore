@@ -48,7 +48,7 @@ Thumbs.db
 Desktop.ini
 
 # Config with local overrides
-openvision/config/local.yaml
+config/local.yaml
 
 # Debug scripts
 debug_*.py

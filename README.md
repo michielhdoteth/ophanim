@@ -165,7 +165,7 @@ openvision observe video.mp4 --provider groq
 
 ## Configuration
 
-Default: `openvision/config/default.yaml`. Override:
+Default: `config/default.yaml`. Override:
 
 ```bash
 set OPENVISION_CONFIG=my_config.yaml
@@ -182,31 +182,30 @@ set OPENVISION_CONFIG=my_config.yaml
 ## Architecture
 
 ```
-openvision/
-  cli/              # Typer CLI (8 commands)
-    commands/
-      observe.py    # Main analysis + raw-frames mode
-      ask.py        # Visual Q&A + raw-frames mode
-      observations.py  # Saved observation ledgers
-      segment.py    # Standalone SAM segmentation
-      track.py      # Object tracking
-      status.py     # Provider health + GPU info
-      transcribe.py # Speech-to-text
-  core/             # Video, GPU, sampling, audio, errors
-  providers/        # Multi-provider VLM architecture
-    base.py         # Abstract VlmProvider interface
-    openai_compat.py # Shared OpenAI-compatible base
-    lmstudio.py     # LM Studio provider
-    ollama.py       # Ollama native provider
-    llamacpp.py     # llama.cpp provider
-    cloud.py        # OpenAI/Groq/vLLM/Together/etc.
-    registry.py     # Auto-detection + factory
-    sam.py          # SAM segmentation provider
-    whisper.py      # Whisper transcription provider
-  storage/          # Config, cache, paths
-  models.py         # Pydantic schemas (TimelineEntry, RawFrame, etc.)
-  config/           # default.yaml
-  tests/            # 250+ tests
+cli/              # Typer CLI (8 commands)
+  commands/
+    observe.py    # Main analysis + raw-frames mode
+    ask.py        # Visual Q&A + raw-frames mode
+    observations.py  # Saved observation ledgers
+    segment.py    # Standalone SAM segmentation
+    track.py      # Object tracking
+    status.py     # Provider health + GPU info
+    transcribe.py # Speech-to-text
+core/             # Video, GPU, sampling, audio, errors
+providers/        # Multi-provider VLM architecture
+  base.py         # Abstract VlmProvider interface
+  openai_compat.py # Shared OpenAI-compatible base
+  lmstudio.py     # LM Studio provider
+  ollama.py       # Ollama native provider
+  llamacpp.py     # llama.cpp provider
+  cloud.py        # OpenAI/Groq/vLLM/Together/etc.
+  registry.py     # Auto-detection + factory
+  sam.py          # SAM segmentation provider
+  whisper.py      # Whisper transcription provider
+storage/          # Config, cache, paths
+models.py         # Pydantic schemas (TimelineEntry, RawFrame, etc.)
+config/           # default.yaml
+tests/            # 250+ tests
 ```
 
 ## Status

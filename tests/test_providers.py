@@ -5,13 +5,13 @@ import httpx
 import socket
 from unittest.mock import patch
 
-from openvision.providers.base import VlmProvider, VlmResponse, TokenUsage
-from openvision.providers.lmstudio import LmStudioProvider
-from openvision.providers.openai_compat import OpenAICompatProvider
-from openvision.providers.ollama import OllamaProvider
-from openvision.providers.llamacpp import LlamaCppProvider
-from openvision.providers.cloud import CloudProvider
-from openvision.providers.registry import ProviderRegistry, _extract_models
+from providers.base import VlmProvider, VlmResponse, TokenUsage
+from providers.lmstudio import LmStudioProvider
+from providers.openai_compat import OpenAICompatProvider
+from providers.ollama import OllamaProvider
+from providers.llamacpp import LlamaCppProvider
+from providers.cloud import CloudProvider
+from providers.registry import ProviderRegistry, _extract_models
 
 
 # ------------------------------------------------------------------

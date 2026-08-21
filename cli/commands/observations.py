@@ -7,8 +7,8 @@ from rich.table import Table
 from rich.markdown import Markdown
 from datetime import datetime
 
-from openvision.storage.paths import observations_dir
-from openvision.storage.config import load_config
+from storage.paths import observations_dir
+from storage.config import load_config
 
 console = Console()
 

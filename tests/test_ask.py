@@ -1,9 +1,9 @@
 """Tests for ask command."""
 import pytest
 from typer.testing import CliRunner
-from openvision.cli.app import app
-from openvision.models import AskResult
-from openvision.cli.commands.ask import _is_uncertain
+from cli.app import app
+from models import AskResult
+from cli.commands.ask import _is_uncertain
 
 runner = CliRunner()
 

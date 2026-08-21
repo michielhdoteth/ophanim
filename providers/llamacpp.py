@@ -3,7 +3,7 @@
 llama.cpp serves an OpenAI-compatible /v1/chat/completions endpoint.
 This is a thin wrapper around OpenAICompatProvider with llama.cpp defaults.
 """
-from openvision.providers.openai_compat import OpenAICompatProvider
+from providers.openai_compat import OpenAICompatProvider
 
 
 class LlamaCppProvider(OpenAICompatProvider):

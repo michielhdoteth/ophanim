@@ -1,4 +1,4 @@
-﻿"""openvision ground <path> --query <query> - Detect and locate objects using LocateAnything-3B."""
+"""openvision ground <path> --query <query> - Detect and locate objects using LocateAnything-3B."""
 import json
 from pathlib import Path
 from typing import Optional
@@ -8,9 +8,9 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from openvision.models import GroundingBox, GroundingFrame, GroundingResult, TokenUsage
-from openvision.storage.config import load_config, get_mode_config
-from openvision.core.gpu import auto_downgrade_mode, log_vram
+from models import GroundingBox, GroundingFrame, GroundingResult, TokenUsage
+from storage.config import load_config, get_mode_config
+from core.gpu import auto_downgrade_mode, log_vram
 
 console = Console()
 
@@ -33,11 +33,11 @@ def ground_cmd(
         openvision ground video.mp4 --query "all people" --interval 1.0
         openvision ground frame.jpg --query "laptop on desk"
     """
-    from openvision.core.video import probe
-    from openvision.core.sampling import smart_sample
-    from openvision.providers.locate_anything import LocateAnythingProvider
-    from openvision.storage.cache import RunCache
-    from openvision.core.errors import OpenVisionError
+    from core.video import probe
+    from core.sampling import smart_sample
+    from providers.locate_anything import LocateAnythingProvider
+    from storage.cache import RunCache
+    from core.errors import OpenVisionError
 
     try:
         file_path = Path(path).resolve()
@@ -67,7 +67,7 @@ def ground_cmd(
 
         # Extract frames
         if is_image:
-            from openvision.core.image import load_image
+            from core.image import load_image
             image = load_image(str(file_path))
             frames = [(0.0, image)]
         else:
@@ -90,7 +90,7 @@ def ground_cmd(
         # Set up cache
         cache_dir = config.get("cache", {}).get("directory", "runs")
         if not Path(cache_dir).is_absolute():
-            from openvision.storage.paths import runs_dir
+            from storage.paths import runs_dir
             cache_dir = str(runs_dir(config))
         cache = RunCache(cache_dir)
         import re

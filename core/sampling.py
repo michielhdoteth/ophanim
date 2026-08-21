@@ -2,7 +2,7 @@
 import cv2
 import numpy as np
 from typing import Optional
-from openvision.core.video import extract_frames, probe, parse_time
+from core.video import extract_frames, probe, parse_time
 
 
 def detect_scenes(
@@ -189,8 +189,8 @@ def adaptive_sample(
     actually changes, while skipping redundant frames during
     static talking-head or single-slide segments.
     """
-    from openvision.core.video import extract_frames, probe, parse_time
-    from openvision.core.sampling import detect_scenes
+    from core.video import extract_frames, probe, parse_time
+    from core.sampling import detect_scenes
 
     # Handle nonexistent videos gracefully
     try:

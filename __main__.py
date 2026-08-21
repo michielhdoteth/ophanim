@@ -1,4 +1,4 @@
-"""Entry point for python -m openvision."""
+"""Open Vision entry point. Run directly: python __main__.py"""
 import sys
 import io
 
@@ -7,7 +7,7 @@ if sys.platform == "win32":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from openvision.cli.app import app
+from cli.app import app
 
 def main():
     app()

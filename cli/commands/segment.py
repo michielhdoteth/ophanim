@@ -7,13 +7,13 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from openvision.core.video import probe, extract_frames, extract_frames_by_indices
-from openvision.core.sampling import smart_sample
-from openvision.core.gpu import auto_downgrade_mode, log_vram
-from openvision.providers.sam import SamProvider
-from openvision.storage.cache import RunCache
-from openvision.storage.config import load_config, get_mode_config
-from openvision.models import SegmentResult, SegmentObject
+from core.video import probe, extract_frames, extract_frames_by_indices
+from core.sampling import smart_sample
+from core.gpu import auto_downgrade_mode, log_vram
+from providers.sam import SamProvider
+from storage.cache import RunCache
+from storage.config import load_config, get_mode_config
+from models import SegmentResult, SegmentObject
 
 console = Console()
 
@@ -75,7 +75,7 @@ def segment_cmd(
     # Create run directory
     cache_dir = config.get("cache", {}).get("directory", "runs")
     if not Path(cache_dir).is_absolute():
-        from openvision.storage.paths import runs_dir
+        from storage.paths import runs_dir
         cache_dir = str(runs_dir(config))
     cache = RunCache(cache_dir)
     run_dir = cache.create_run("seg_" + prompt.replace(" ", "_")[:20], video_meta)

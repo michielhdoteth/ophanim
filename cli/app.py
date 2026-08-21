@@ -3,8 +3,8 @@ import typer
 import sys
 from pathlib import Path
 from typing import Optional
-from openvision.cli.commands import probe, observe, ask, segment, track, status, observations, transcribe, ground
-from openvision.core.errors import OpenVisionError, handle_cli_error
+from cli.commands import probe, observe, ask, segment, track, status, observations, transcribe, ground
+from core.errors import OpenVisionError, handle_cli_error
 
 app = typer.Typer(
     name="openvision",
@@ -24,7 +24,7 @@ def _package_version() -> str:
 
 def version_callback(value: bool):
     if value:
-        from openvision.storage.paths import get_home, observations_dir, downloads_dir
+        from storage.paths import get_home, observations_dir, downloads_dir
 
         typer.echo(f"openvision {_package_version()}")
         typer.echo(f"home: {get_home()}")

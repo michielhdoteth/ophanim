@@ -3,9 +3,9 @@ import pytest
 import numpy as np
 from pathlib import Path
 from typer.testing import CliRunner
-from openvision.cli.app import app
-from openvision.models import SegmentResult, SegmentObject, TrackResult, TrackPosition
-from openvision.providers.sam import SamProvider
+from cli.app import app
+from models import SegmentResult, SegmentObject, TrackResult, TrackPosition
+from providers.sam import SamProvider
 
 runner = CliRunner()
 

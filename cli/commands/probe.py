@@ -7,8 +7,8 @@ from rich.table import Table
 from rich.panel import Panel
 import json
 
-from openvision.core.video import probe, estimate_processing_cost, detect_vfr, detect_color_range
-from openvision.models import ProbeResult
+from core.video import probe, estimate_processing_cost, detect_vfr, detect_color_range
+from models import ProbeResult
 
 console = Console()
 

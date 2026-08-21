@@ -6,7 +6,7 @@ provider that implements the OpenAI chat completions protocol with vision.
 import os
 from typing import Optional
 
-from openvision.providers.openai_compat import OpenAICompatProvider
+from providers.openai_compat import OpenAICompatProvider
 
 
 class CloudProvider(OpenAICompatProvider):

@@ -2,7 +2,7 @@
 
 Thin wrapper around OpenAICompatProvider with LM Studio defaults.
 """
-from openvision.providers.openai_compat import OpenAICompatProvider
+from providers.openai_compat import OpenAICompatProvider
 
 
 class LmStudioProvider(OpenAICompatProvider):

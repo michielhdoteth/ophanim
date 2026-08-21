@@ -11,8 +11,8 @@ import base64
 import httpx
 import numpy as np
 
-from openvision.providers.base import VlmProvider, VlmResponse, TokenUsage
-from openvision.core.image import encode_base64
+from providers.base import VlmProvider, VlmResponse, TokenUsage
+from core.image import encode_base64
 
 
 class OpenAICompatProvider(VlmProvider):

@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from openvision.providers.whisper import WhisperProvider
+from providers.whisper import WhisperProvider
 
 console = Console()
 
@@ -38,7 +38,7 @@ def transcribe_cmd(
     max_speakers: int = typer.Option(None, "--max-speakers", help="Maximum number of speakers"),
 ):
     """Transcribe audio from a video file using Whisper."""
-    from openvision.core.download import is_url
+    from core.download import is_url
     input_path = Path(path)
     is_remote = is_url(path)
     if not is_remote and not input_path.exists():
@@ -56,9 +56,9 @@ def transcribe_cmd(
     # Download from URL if remote (native yt-dlp into stable downloads dir)
     dl_result = {}
     if is_remote:
-        from openvision.core.download import download_video
-        from openvision.storage.paths import downloads_dir
-        from openvision.storage.config import load_config
+        from core.download import download_video
+        from storage.paths import downloads_dir
+        from storage.config import load_config
         try:
             cfg = load_config()
         except Exception:
@@ -78,11 +78,11 @@ def transcribe_cmd(
     # Check for downloaded subtitle files
     if is_remote and dl_result.get("subs_file") and os.path.exists(dl_result["subs_file"]):
         try:
-            from openvision.core.captions import parse_vtt, filter_range
+            from core.captions import parse_vtt, filter_range
             sub_content = Path(dl_result["subs_file"]).read_text(encoding="utf-8", errors="replace")
             caps = parse_vtt(sub_content)
             if caps:
-                from openvision.providers.whisper import Transcript, TranscriptSegment
+                from providers.whisper import Transcript, TranscriptSegment
                 transcript = Transcript(
                     segments=[TranscriptSegment(start=c.start, end=c.end, text=c.text, confidence=1.0) for c in caps],
                     language="en",
@@ -124,8 +124,8 @@ def transcribe_cmd(
     # Apply diarization if requested
     if diarize_audio and transcript.segments:
         try:
-            from openvision.providers.diarizer import DiarizerProvider, merge_transcript_with_diarization
-            from openvision.core.audio import extract_audio
+            from providers.diarizer import DiarizerProvider, merge_transcript_with_diarization
+            from core.audio import extract_audio
 
             _safe_print("[dim]Running speaker diarization...[/dim]")
 

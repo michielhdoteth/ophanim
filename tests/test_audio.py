@@ -2,7 +2,7 @@
 import os
 import pytest
 from pathlib import Path
-from openvision.core.audio import (
+from core.audio import (
     has_audio_stream,
     extract_audio,
     extract_audio_segment,

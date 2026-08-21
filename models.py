@@ -4,7 +4,7 @@ from typing import Optional, Literal
 from datetime import datetime
 
 # Re-export canonical TokenUsage from providers.base (Pydantic-compatible)
-from openvision.providers.base import TokenUsage
+from providers.base import TokenUsage
 
 
 class Frame(BaseModel):

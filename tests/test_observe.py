@@ -3,8 +3,8 @@ import pytest
 import numpy as np
 from pathlib import Path
 from typer.testing import CliRunner
-from openvision.cli.app import app
-from openvision.models import ObserveResult, ImageResult, TimelineEntry
+from cli.app import app
+from models import ObserveResult, ImageResult, TimelineEntry
 
 runner = CliRunner()
 
@@ -146,21 +146,21 @@ class TestBuildSummary:
     """Test the summary builder functions directly via observe module."""
 
     def _import_helpers(self):
-        from openvision.cli.commands.observe import (
+        from cli.commands.observe import (
             _build_timeline_summary_fallback, _build_qa_summary
         )
         return _build_timeline_summary_fallback, _build_qa_summary
 
     def test_timeline_summary_single(self):
         tl_fn, _ = self._import_helpers()
-        from openvision.models import TimelineEntry
+        from models import TimelineEntry
         timeline = [TimelineEntry(time_seconds=0.0, timestamp="00:00", observation="A single event")]
         result = tl_fn(timeline)
         assert result.content == "A single event"
 
     def test_timeline_summary_multiple(self):
         tl_fn, _ = self._import_helpers()
-        from openvision.models import TimelineEntry
+        from models import TimelineEntry
         timeline = [
             TimelineEntry(time_seconds=0.0, timestamp="00:00", observation="First event"),
             TimelineEntry(time_seconds=5.0, timestamp="00:05", observation="Second event"),
@@ -177,7 +177,7 @@ class TestBuildSummary:
 
     def test_qa_summary_with_answers(self):
         _, qa_fn = self._import_helpers()
-        from openvision.models import TimelineEntry
+        from models import TimelineEntry
         timeline = [
             TimelineEntry(time_seconds=0.0, timestamp="00:00", observation="Short"),
             TimelineEntry(time_seconds=5.0, timestamp="00:05", observation="A much longer detailed observation about the scene"),

@@ -1,6 +1,6 @@
 """Tests for GPU memory manager."""
 import pytest
-from openvision.core.gpu import (
+from core.gpu import (
     get_vram_info,
     check_safe_mode,
     auto_downgrade_mode,

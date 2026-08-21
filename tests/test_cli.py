@@ -1,7 +1,7 @@
 """Tests for CLI."""
 import pytest
 from typer.testing import CliRunner
-from openvision.cli.app import app
+from cli.app import app
 
 runner = CliRunner()
 
@@ -79,7 +79,7 @@ class TestCliSmoke:
         assert "delete" in result.output
 
     def test_observations_list_empty(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("openvision_HOME", str(tmp_path / "openvision-home"))
+        monkeypatch.setenv("OPENVISION_HOME", str(tmp_path / "openvision-home"))
         result = runner.invoke(app, ["observations", "list"])
         assert result.exit_code == 0
         assert "No saved observations" in result.output

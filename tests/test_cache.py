@@ -2,13 +2,13 @@
 import pytest
 import json
 from pathlib import Path
-from openvision.storage.config import (
+from storage.config import (
     find_config,
     load_config,
     get_mode_config,
     merge_config,
 )
-from openvision.storage.cache import RunCache, create_cache_key
+from storage.cache import RunCache, create_cache_key
 
 
 class TestConfig:
@@ -50,10 +50,10 @@ class TestConfig:
         assert merged["e"] == 4
 
     def test_env_var_override(self, monkeypatch, tmp_path):
-        """openvision_CONFIG env var should take priority."""
+        """OPENVISION_CONFIG env var should take priority."""
         custom_config = tmp_path / "custom.yaml"
         custom_config.write_text("machine:\n  gpu: custom\n")
-        monkeypatch.setenv("openvision_CONFIG", str(custom_config))
+        monkeypatch.setenv("OPENVISION_CONFIG", str(custom_config))
         config = load_config()
         assert config["machine"]["gpu"] == "custom"
 

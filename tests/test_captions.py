@@ -1,6 +1,6 @@
 """Tests for VTT caption parsing and deduplication."""
 import pytest
-from openvision.core.captions import (
+from core.captions import (
     CaptionSegment,
     parse_vtt,
     filter_range,

@@ -2,7 +2,7 @@
 import pytest
 import numpy as np
 from pathlib import Path
-from openvision.core.video import (
+from core.video import (
     probe,
     _format_timestamp,
     _downscale,
@@ -12,7 +12,7 @@ from openvision.core.video import (
     detect_vfr,
     detect_color_range,
 )
-from openvision.core.image import (
+from core.image import (
     downscale,
     encode_base64,
     make_thumbnail,

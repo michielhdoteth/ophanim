@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass, field
 
-from openvision.core.audio import extract_audio, has_audio_stream, cleanup_wav
+from core.audio import extract_audio, has_audio_stream, cleanup_wav
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def _resolve_device(requested: str) -> str:
     if requested != "auto":
         return requested
     try:
-        from openvision.core.gpu import get_vram_info
+        from core.gpu import get_vram_info
         vram = get_vram_info()
         if vram.get("free_gb", 0) > 2.0:
             logger.info(f"GPU auto-detect: using CUDA ({vram['free_gb']:.1f}GB free)")
@@ -197,7 +197,7 @@ class WhisperProvider:
                 )
 
                 content = Path(tmp_path).read_text(encoding="utf-8", errors="replace")
-                from openvision.core.captions import parse_vtt
+                from core.captions import parse_vtt
 
                 # Try VTT parse first, fall back to SRT-like parsing
                 caps = parse_vtt(content)
@@ -237,7 +237,7 @@ class WhisperProvider:
 
 def _parse_srt(content: str) -> list:
     """Simple SRT parser as fallback."""
-    from openvision.core.captions import CaptionSegment
+    from core.captions import CaptionSegment
     segments = []
     blocks = re.split(r'\n\s*\n', content.strip())
     ts_pattern = re.compile(
