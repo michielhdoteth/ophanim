@@ -40,6 +40,7 @@ youtube/networks/manim/media/
 
 # Agent workspace
 .iter/
+.workspace/
 
 # OS
 .DS_Store
