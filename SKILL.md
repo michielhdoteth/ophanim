@@ -14,6 +14,9 @@ Open Vision gives AI agents eyes and ears. It extracts keyframes, transcribes au
 | `openvision track <video> "prompt"` | Object tracking across frames |
 | `openvision status` | GPU, VRAM, provider health, cache stats |
 | `openvision status --doctor` | Full diagnostic checks |
+| `openvision install parakeet` | Install Parakeet STT model (~350MB) |
+| `openvision install whisper --model base` | Install Whisper model |
+| `openvision install list-models` | Show all models and install status |
 | `openvision observations list` | Saved observation ledgers |
 | `openvision observations view <id>` | View a saved observation |
 
