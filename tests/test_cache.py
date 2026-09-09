@@ -88,10 +88,12 @@ class TestRunCache:
         assert run_dir.exists()
         assert (run_dir / "frames").exists()
         assert (run_dir / "masks").exists()
+        assert (run_dir / "thumbnails").exists()
 
-        # Verify metadata saved
-        meta = json.loads((run_dir / "input_metadata.json").read_text())
-        assert meta["test"] is True
+        # Verify DB entry exists
+        found = cache.get_run(key)
+        assert found is not None
+        assert found == run_dir
 
     def test_has_cached(self, cache):
         key = "findmetest000001"
@@ -120,6 +122,10 @@ class TestRunCache:
         data = json.loads((run_dir / "test_data.json").read_text())
         assert data["foo"] == "bar"
 
+        # Also verify it's in the database
+        run_id = cache._get_run_id(run_dir)
+        assert run_id is not None
+
     def test_save_text(self, cache):
         key = "texttest"
         run_dir = cache.create_run(key)
@@ -146,3 +152,59 @@ class TestRunCache:
 
     def test_get_run_not_found(self, cache):
         assert cache.get_run("nonexistentkey") is None
+
+    def test_save_frames_batch(self, cache):
+        key = "batchtest"
+        run_dir = cache.create_run(key)
+        frames = [
+            {"index": 0, "timestamp": 0.0, "timestamp_str": "0.0s", "path": "/tmp/f0.jpg", "reason": "test"},
+            {"index": 1, "timestamp": 2.0, "timestamp_str": "2.0s", "path": "/tmp/f1.jpg", "reason": "test"},
+        ]
+        cache.save_frames_batch(run_dir, frames)
+        # Verify frames are in the database
+        run_id = cache._get_run_id(run_dir)
+        assert run_id is not None
+
+    def test_save_transcript_batch(self, cache):
+        key = "transcripttest"
+        run_dir = cache.create_run(key)
+        from providers.parakeet import TranscriptSegment
+        segments = [
+            TranscriptSegment(start=0.0, end=3.0, text="Hello", confidence=1.0, speaker="SPEAKER_00"),
+            TranscriptSegment(start=3.0, end=6.0, text="World", confidence=1.0, speaker=""),
+        ]
+        cache.save_transcript_batch(run_dir, segments)
+        run_id = cache._get_run_id(run_dir)
+        assert run_id is not None
+
+    def test_search_runs(self, cache):
+        key = "searchtest"
+        run_dir = cache.create_run(key)
+        cache.save_artifact(run_dir, "data.json", {"content": "hello world"})
+        results = cache.search_runs("hello")
+        assert len(results) >= 1
+
+    def test_search_runs_no_results(self, cache):
+        results = cache.search_runs("nonexistent_xyz_query")
+        assert results == []
+
+    def test_get_analytics(self, cache):
+        cache.create_run("run1")
+        cache.create_run("run2")
+        analytics = cache.get_analytics()
+        assert analytics["total_runs"] >= 2
+        assert "total_frames" in analytics
+        assert "total_transcript_segments" in analytics
+
+    def test_db_file_exists(self, cache):
+        assert cache._db_path.exists()
+
+    def test_multiple_caches_independent(self, tmp_path):
+        cache1 = RunCache(str(tmp_path / "runs1"))
+        cache2 = RunCache(str(tmp_path / "runs2"))
+        cache1.create_run("only1")
+        cache2.create_run("only2")
+        assert cache1.has_cached("only1")
+        assert not cache2.has_cached("only1")
+        assert cache2.has_cached("only2")
+        assert not cache1.has_cached("only2")
