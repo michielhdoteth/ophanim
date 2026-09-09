@@ -1,0 +1,65 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight Checklist
+      options:
+        - label: I have searched existing issues to avoid duplicates
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What Problem Does This Solve?
+      description: Focus on the problem, not the solution. What are you trying to do that Open Vision can't currently handle?
+      placeholder: |
+        When processing a 2-hour video, I have no way to get just the frames where the speaker changes. I end up processing the entire video and filtering manually.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How do you think this should work?
+      placeholder: |
+        Add a --speaker-changes flag that detects speaker change points from diarization and only extracts frames at those timestamps.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you tried any workarounds?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature Area
+      options:
+        - CLI commands
+        - Core (video/audio processing)
+        - Providers (VLM/STT)
+        - Storage/caching
+        - Documentation
+        - Python API
+        - Other
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - Nice to have
+        - Important (works around a limitation)
+        - Critical (blocks my workflow)
+
+  - type: textarea
+    id: usecase
+    attributes:
+      label: Use Case Example
+      description: Show how you would use this feature in practice

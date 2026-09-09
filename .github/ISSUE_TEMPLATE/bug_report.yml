@@ -1,0 +1,108 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug", "triage"]
+body:
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight Checklist
+      options:
+        - label: I have searched existing issues to avoid duplicates
+          required: true
+        - label: I am using the latest version of Open Vision
+          required: true
+        - label: I have run `openvision status --doctor` and can share the output
+          required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What Happened?
+      description: Describe the bug clearly. Include what you expected vs what actually happened.
+      placeholder: |
+        Expected: openvision observe video.mp4 --json outputs valid JSON
+        Actual: Process crashes with "KeyError: 'segments'" at line 142
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran
+      render: shell
+      placeholder: |
+        openvision observe video.mp4 --json --transcribe
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Output / Logs
+      description: Paste any error messages or log output
+      render: shell
+
+  - type: textarea
+    id: video
+    attributes:
+      label: Video File
+      description: What video were you processing? (type, source, duration if known)
+      placeholder: |
+        MP4, 1080p, 5 minutes, local file
+
+  - type: dropdown
+    id: stt
+    attributes:
+      label: STT Provider
+      options:
+        - Parakeet (default)
+        - Whisper
+        - Not using transcription
+
+  - type: dropdown
+    id: vlm
+    attributes:
+      label: VLM Backend
+      options:
+        - Auto-detect
+        - LM Studio
+        - Ollama
+        - llama.cpp
+        - OpenAI
+        - Groq
+        - Together AI
+        - Raw frames only (no VLM)
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Docker
+
+  - type: dropdown
+    id: gpu
+    attributes:
+      label: GPU
+      options:
+        - NVIDIA (CUDA)
+        - AMD
+        - Apple Silicon
+        - Intel
+        - CPU only
+
+  - type: input
+    id: version
+    attributes:
+      label: Open Vision Version
+      placeholder: "1.0.0"
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Anything else that might help (screenshots, related issues, etc.)

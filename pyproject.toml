@@ -6,9 +6,20 @@ build-backend = "setuptools.build_meta"
 name = "openvision"
 version = "1.0.0"
 description = "Self-hosted, privacy-first AI vision tool for CLI and agents"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
-    "opencv-python>=4.13",
+    "opencv-python>=5.0",
     "pillow>=11",
     "numpy>=2",
     "typer>=0.23",
@@ -23,6 +34,20 @@ dependencies = [
     "tqdm>=4.67",
     "click>=8",
     "yt-dlp>=2025",
+    "sherpa-onnx>=1.13",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-mock>=3",
+    "pytest-cov>=6",
+]
+diarize = [
+    "pyannote.audio>=3",
+]
+segment = [
+    "ultralytics>=8",
 ]
 
 [project.scripts]
@@ -34,3 +59,11 @@ py-modules = ["models"]
 
 [tool.setuptools.packages.find]
 include = ["cli*", "core*", "providers*", "storage*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "video: marks tests that require a real video file",
+]
