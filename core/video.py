@@ -206,6 +206,114 @@ def detect_color_range(path: str) -> dict:
     return result
 
 
+# ---------------------------------------------------------------------------
+# FFmpeg 9.0 CUDA transpose support
+# ---------------------------------------------------------------------------
+
+_cuda_transpose_available: bool | None = None
+
+
+def _has_cuda_transpose() -> bool:
+    """Check if ffmpeg build includes the transpose_cuda filter (FFmpeg 9.0+)."""
+    global _cuda_transpose_available
+    if _cuda_transpose_available is not None:
+        return _cuda_transpose_available
+
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-filters"], capture_output=True, text=True, timeout=10
+        )
+        _cuda_transpose_available = "transpose_cuda" in proc.stdout
+    except Exception:
+        _cuda_transpose_available = False
+
+    return _cuda_transpose_available
+
+
+def _detect_orientation(path: str) -> int:
+    """
+    Detect video rotation from metadata (side_data, tags).
+
+    Returns:
+        Rotation in degrees: 0, 90, 180, 270
+    """
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream_side_data=rotation,tags:stream_tags=rotate",
+            "-of", "json",
+            path,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if proc.returncode != 0:
+            return 0
+
+        import json
+        data = json.loads(proc.stdout)
+
+        # Check side_data for rotation
+        for stream in data.get("streams", []):
+            for sd in stream.get("side_data_list", []):
+                rot = sd.get("rotation")
+                if rot is not None:
+                    return abs(int(float(rot)))
+
+            # Check tags
+            tags = stream.get("tags", {})
+            rotate = tags.get("rotate") or tags.get("tags.rotate")
+            if rotate is not None:
+                return abs(int(float(rotate)))
+
+    except Exception:
+        pass
+
+    return 0
+
+
+def _get_transpose_filter(rotation: int, use_cuda: bool = False) -> str:
+    """
+    Get the appropriate transpose filter for a given rotation.
+
+    Args:
+        rotation: 0, 90, 180, or 270 degrees
+        use_cuda: Use CUDA-accelerated transpose if available
+
+    Returns:
+        ffmpeg filter string (e.g., "transpose_cuda=1") or "" if no transform needed
+    """
+    if rotation == 0:
+        return ""
+
+    suffix = "_cuda" if use_cuda and _has_cuda_transpose() else ""
+
+    # transpose values: 0=90CCW+VFlip, 1=90CW, 2=90CCW, 3=90CW+VFlip
+    filter_map = {
+        90: f"transpose{suffix}=1",       # 90 CW
+        180: f"transpose{suffix}=1,transpose{suffix}=1",  # 180 = two 90s
+        270: f"transpose{suffix}=2",      # 90 CCW (= 270 CW)
+    }
+
+    return filter_map.get(rotation, "")
+
+
+def probe_orientation(path: str) -> dict:
+    """
+    Probe video orientation and CUDA availability.
+
+    Returns dict with: rotation, has_cuda_transpose, transpose_filter
+    """
+    rotation = _detect_orientation(path)
+    has_cuda = _has_cuda_transpose()
+    transpose_filter = _get_transpose_filter(rotation, use_cuda=has_cuda)
+
+    return {
+        "rotation": rotation,
+        "has_cuda_transpose": has_cuda,
+        "transpose_filter": transpose_filter,
+    }
+
+
 def extract_frames(
     path: str,
     fps: float = 0.5,
@@ -317,17 +425,18 @@ def _extract_frames_vfr(
     target_fps = min(fps, max_frames / max(1, duration))
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        cmd = [
-            "ffmpeg", "-i", str(video),
-            "-vf", f"fps={target_fps:.4f}",
-            "-vsync", "vfr",
-            os.path.join(tmpdir, "frame_%06d.jpg"),
-        ]
+        # Build filter chain with optional CUDA transpose for rotated videos
+        rotation = _detect_orientation(path)
+        transpose_filter = _get_transpose_filter(rotation, use_cuda=True)
 
-        # Also capture showinfo for timestamps
+        vf_parts = [f"fps={target_fps:.4f}"]
+        if transpose_filter:
+            vf_parts.append(transpose_filter)
+        vf_chain = ",".join(vf_parts)
+
         cmd_with_info = [
             "ffmpeg", "-i", str(video),
-            "-vf", f"fps={target_fps:.4f},showinfo",
+            "-vf", vf_chain,
             "-vsync", "vfr",
             os.path.join(tmpdir, "frame_%06d.jpg"),
         ]
@@ -337,8 +446,14 @@ def _extract_frames_vfr(
                 cmd_with_info, capture_output=True, text=True, timeout=600,
             )
         except subprocess.TimeoutExpired:
-            # Fallback to simpler command
-            subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            # Fallback: simpler command without transpose
+            fallback_cmd = [
+                "ffmpeg", "-i", str(video),
+                "-vf", f"fps={target_fps:.4f}",
+                "-vsync", "vfr",
+                os.path.join(tmpdir, "frame_%06d.jpg"),
+            ]
+            subprocess.run(fallback_cmd, capture_output=True, text=True, timeout=600)
 
         # Parse timestamps from showinfo
         timestamps = []

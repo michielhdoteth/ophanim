@@ -148,3 +148,50 @@ def cleanup_wav(path: str):
         os.remove(path)
     except (OSError, FileNotFoundError):
         pass
+
+
+def save_full_audio(video_path: str, output_path: str) -> str:
+    """
+    Save the full soundtrack from a video file (lossless copy when possible).
+
+    Args:
+        video_path: Path to video file
+        output_path: Output path (e.g., video_dir/audio.m4a)
+
+    Returns:
+        Path to saved audio file
+    """
+    video = Path(video_path)
+    if not video.exists():
+        raise FileNotFoundError(f"Video file not found: {video_path}")
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(video),
+        "-vn",
+        "-acodec", "copy",  # lossless copy
+        str(output),
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            # Fallback: re-encode if copy fails (e.g., incompatible container)
+            cmd_fallback = [
+                "ffmpeg", "-y",
+                "-i", str(video),
+                "-vn",
+                "-acodec", "aac",
+                "-b:a", "192k",
+                str(output),
+            ]
+            result = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                raise RuntimeError(f"Audio save failed: {result.stderr[:500]}")
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Audio save timed out (5 min)")
+
+    return str(output)

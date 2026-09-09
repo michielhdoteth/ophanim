@@ -1,4 +1,4 @@
-"""WebVTT caption parsing and deduplication for YouTube auto-subs."""
+"""WebVTT/SRT caption parsing and deduplication for YouTube auto-subs."""
 import re
 from dataclasses import dataclass
 
@@ -9,6 +9,33 @@ class CaptionSegment:
     start: float  # seconds
     end: float    # seconds
     text: str
+
+
+def parse_srt(content: str) -> list[CaptionSegment]:
+    """Parse SRT content into caption segments."""
+    segments = []
+    blocks = re.split(r'\n\s*\n', content.strip())
+    timestamp_pattern = re.compile(
+        r'(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})'
+    )
+    for block in blocks:
+        lines = block.strip().split('\n')
+        for i, line in enumerate(lines):
+            m = timestamp_pattern.search(line)
+            if m:
+                start = _ts_to_seconds(int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)))
+                end = _ts_to_seconds(int(m.group(5)), int(m.group(6)), int(m.group(7)), int(m.group(8)))
+                text_lines = []
+                for tl in lines[i + 1:]:
+                    tl = tl.strip()
+                    if not tl:
+                        break
+                    tl = re.sub(r'<[^>]+>', '', tl)
+                    text_lines.append(tl)
+                text = ' '.join(text_lines).strip()
+                if text:
+                    segments.append(CaptionSegment(start=start, end=end, text=text))
+    return segments
 
 
 def parse_vtt(content: str) -> list[CaptionSegment]:

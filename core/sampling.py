@@ -5,6 +5,120 @@ from typing import Optional
 from core.video import extract_frames, probe, parse_time
 
 
+# ---------------------------------------------------------------------------
+# Sliding-window dedup with 3 channels
+# ---------------------------------------------------------------------------
+
+def _hist_hsv(frame: np.ndarray) -> np.ndarray:
+    """Compute normalized HSV histogram for a frame."""
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    hist = cv2.calcHist([hsv], [0, 1, 2], None, [50, 60, 30], [0, 180, 0, 256, 0, 256])
+    cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
+    return hist
+
+
+def _motion_score(frame_a: np.ndarray, frame_b: np.ndarray) -> float:
+    """Compute pixel-difference motion score between two frames (0=identical, 1=max change)."""
+    if frame_a is None or frame_b is None:
+        return 0.0
+    gray_a = cv2.cvtColor(frame_a, cv2.COLOR_BGR2GRAY)
+    gray_b = cv2.cvtColor(frame_b, cv2.COLOR_BGR2GRAY)
+    diff = cv2.absdiff(gray_a, gray_b)
+    return float(np.mean(diff)) / 255.0
+
+
+def sliding_window_dedup(
+    frames: list[dict],
+    window_size: int = 10,
+    global_threshold: float = 0.92,
+    local_threshold: float = 0.85,
+    motion_threshold: float = 0.02,
+) -> tuple[list[int], dict]:
+    """
+    Sliding-window deduplication with 3 channels:
+
+    1. **Global channel**: Histogram correlation to globally unique reference.
+       Rejects frames that match any previously kept frame too closely.
+    2. **Settled-local channel**: Within the sliding window, tracks whether the
+       scene has settled. Keeps a frame only if the window is "active" (content
+       is still changing). Settled windows drop redundant frames.
+    3. **Action channel**: Pixel-difference motion score. Keeps frames where
+       motion exceeds a threshold, even if histogram similarity is high.
+
+    Args:
+        frames: List of frame dicts with 'image' key (np.ndarray)
+        window_size: Number of frames in the sliding window
+        global_threshold: 0-1, higher = more aggressive dedup (reject more)
+        local_threshold: 0-1, threshold for local similarity within window
+        motion_threshold: 0-1, minimum motion score to force-keep a frame
+
+    Returns:
+        Tuple of (kept_indices, stats_dict)
+    """
+    if len(frames) <= 1:
+        return list(range(len(frames))), {"kept": len(frames), "dropped": 0}
+
+    kept_indices = []
+    kept_hists = []  # global reference histograms
+    stats = {"kept": 0, "dropped_global": 0, "dropped_local": 0, "saved_motion": 0}
+
+    for i, frame in enumerate(frames):
+        img = frame.get("image")
+        if img is None:
+            continue
+
+        hist = _hist_hsv(img)
+
+        # --- Channel 1: Global similarity ---
+        # Compare against all globally kept reference frames
+        globally_similar = False
+        for ref_hist in kept_hists:
+            sim = cv2.compareHist(ref_hist, hist, cv2.HISTCMP_CORREL)
+            if sim >= global_threshold:
+                globally_similar = True
+                break
+
+        if globally_similar:
+            # --- Channel 3: Action (motion) override ---
+            # Even if globally similar, keep if there's significant motion
+            if kept_indices:
+                prev_img = frames[kept_indices[-1]].get("image")
+                motion = _motion_score(prev_img, img)
+                if motion >= motion_threshold:
+                    kept_indices.append(i)
+                    kept_hists.append(hist)
+                    stats["saved_motion"] += 1
+                    stats["kept"] += 1
+                    continue
+
+            stats["dropped_global"] += 1
+            continue
+
+        # --- Channel 2: Settled-local (sliding window) ---
+        # Check if the recent window is "settled" (all similar to each other)
+        window_start = max(0, i - window_size)
+        window_frames = frames[window_start:i]
+        if len(window_frames) >= 3:
+            window_hists = [_hist_hsv(f["image"]) for f in window_frames if f.get("image") is not None]
+            if window_hists:
+                local_sims = []
+                for j in range(1, len(window_hists)):
+                    s = cv2.compareHist(window_hists[j - 1], window_hists[j], cv2.HISTCMP_CORREL)
+                    local_sims.append(s)
+                avg_local = sum(local_sims) / len(local_sims) if local_sims else 1.0
+                if avg_local >= local_threshold:
+                    # Window is settled -- this frame is redundant locally
+                    stats["dropped_local"] += 1
+                    continue
+
+        # Keep the frame
+        kept_indices.append(i)
+        kept_hists.append(hist)
+        stats["kept"] += 1
+
+    return kept_indices, stats
+
+
 def detect_scenes(
     frames: list[dict],
     threshold: float = 30.0,
