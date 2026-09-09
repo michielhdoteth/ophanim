@@ -26,6 +26,7 @@ def segment_cmd(
     fps: float = typer.Option(None, "--fps", help="Frames per second for segmentation"),
     mode: str = typer.Option("balanced", "--mode", "-m", help="Processing mode"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    jsonl: bool = typer.Option(False, "--jsonl", help="Streaming JSONL output"),
 ):
     """Segment objects in a video by prompt."""
     input_path = Path(path)
@@ -121,6 +122,16 @@ def segment_cmd(
 
     # Save
     cache.save_artifact(run_dir, "segmentation.json", output.model_dump())
+
+    from core.stream import create_jsonl_writer
+    writer = create_jsonl_writer(jsonl)
+    if writer:
+        writer.emit_probe({"type": "segmentation", "objects_found": len(objects)})
+        for obj in objects:
+            writer.emit_frame(obj.get("track_id", 0), obj.get("start_time", 0),
+                              detections=[obj])
+        writer.emit_done({"objects": len(objects), "frames": len(output.frames)})
+        writer.flush()
 
     if json_output:
         console.print(json.dumps(output.model_dump(), indent=2))

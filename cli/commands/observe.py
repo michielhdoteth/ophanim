@@ -18,7 +18,8 @@ from core.image import downscale, encode_base64, save_frame, load_image
 from core.sampling import smart_sample
 from core.gpu import auto_downgrade_mode, log_vram
 from providers.registry import ProviderRegistry
-from providers.whisper import WhisperProvider, Transcript
+from providers import get_provider, list_providers
+from providers.parakeet import Transcript
 from providers.base import VlmResponse, TokenUsage
 from storage.cache import RunCache
 from storage.config import load_config, get_mode_config
@@ -61,12 +62,22 @@ def observe_cmd(
     fps: float = typer.Option(None, "--fps", help="Frames per second to sample"),
     max_frames: int = typer.Option(None, "--max-frames", help="Maximum frames to process"),
     max_tokens: int = typer.Option(None, "--max-tokens", help="Override max tokens for VLM response"),
-    device: str = typer.Option("auto", "--device", "-d", help="Whisper device: auto, cpu, cuda"),
+    device: str = typer.Option("auto", "--device", "-d", help="Device: auto, cpu, cuda"),
     start_time: str = typer.Option(None, "--start", help="Start time for focus range (e.g., 1:30, 45, 0:15:00)"),
     end_time: str = typer.Option(None, "--end", help="End time for focus range (e.g., 2:00, 90, 0:20:00)"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    jsonl: bool = typer.Option(False, "--jsonl", help="Streaming JSONL output for agents/pipelines"),
     save_observations: bool = typer.Option(False, "--save-observations", help="Save observation as markdown ledger"),
     transcribe_audio: bool = typer.Option(False, "--transcribe", "-t", help="Transcribe audio speech to text"),
+    stt_provider: str = typer.Option("parakeet", "--stt-provider", help=f"STT provider: {', '.join(list_providers())}"),
+    keep_audio: bool = typer.Option(False, "--keep-audio", help="Save full soundtrack as audio.m4a"),
+    grid: bool = typer.Option(False, "--grid", help="Generate 3x3 contact sheet from keyframes"),
+    text_anchors: bool = typer.Option(False, "--text-anchors", help="Force frames at subtitle-cue timestamps"),
+    viewer: bool = typer.Option(False, "--viewer", help="Generate local HTML viewer with keyframes + transcript"),
+    report: bool = typer.Option(False, "--report", help="Generate keep/drop frame selection report"),
+    dnn_model: str = typer.Option(None, "--dnn-model", help="ONNX model path for inline DNN inference during extraction"),
+    cookies: str = typer.Option(None, "--cookies", help="Netscape cookie file for authenticated videos"),
+    cookies_from_browser: str = typer.Option(None, "--cookies-from-browser", help="Read cookies from browser (chrome, firefox, edge, safari)"),
     diarize_audio: bool = typer.Option(False, "--diarize", help="Add speaker labels via diarization"),
     force: bool = typer.Option(False, "--force", "-f", help="Force reprocess (ignore cache)"),
     timestamps: str = typer.Option(None, "--timestamps", help="Extract frames at specific timestamps (comma-separated, e.g., '0:30,2:15,5:00')"),
@@ -88,6 +99,27 @@ def observe_cmd(
     config = load_config()
     mode_config = get_mode_config(config, mode)
 
+    # Resolve cookies
+    cookies_file = cookies
+    if cookies_from_browser and not cookies_file:
+        try:
+            import browser_cookie3
+            import tempfile as _tf
+            cj = getattr(browser_cookie3, cookies_from_browser.replace("-", "_").lower())()
+            cookie_tmp = _tf.NamedTemporaryFile(suffix=".txt", delete=False, mode="w")
+            cookie_tmp.write("# Netscape HTTP Cookie File\n")
+            for c in cj:
+                secure = "TRUE" if c.secure else "FALSE"
+                domain = c.domain if c.domain.startswith(".") else "." + c.domain
+                cookie_tmp.write(f"{domain}\tTRUE\t{c.path}\t{secure}\t{int(c.expires or 0)}\t{c.name}\t{c.value}\n")
+            cookie_tmp.close()
+            cookies_file = cookie_tmp.name
+            console.print(f"[dim]Loaded cookies from {cookies_from_browser}[/dim]")
+        except ImportError:
+            console.print("[yellow]browser-cookie3 not installed. Install with: pip install browser-cookie3[/yellow]")
+        except Exception as e:
+            console.print(f"[yellow]Failed to read browser cookies: {e}[/yellow]")
+
     # Download from URL if remote (native yt-dlp into openvision_HOME/downloads)
     if is_remote:
         from core.download import download_video
@@ -95,7 +127,7 @@ def observe_cmd(
         dl_dir = downloads_dir(config)
         console.print(f"[dim]Downloading from URL into {dl_dir}...[/dim]")
         try:
-            dl_result = download_video(path, output_dir=str(dl_dir), max_height=720)
+            dl_result = download_video(path, output_dir=str(dl_dir), max_height=720, cookies_file=cookies_file)
             input_path = Path(dl_result["path"])
             dur = dl_result.get("duration") or 0
             console.print(
@@ -150,18 +182,25 @@ def observe_cmd(
         is_image = input_path.suffix.lower() in image_extensions
 
     if is_image:
-        _handle_image(input_path, question, prompt, json_output, config, actual_resolution, max_tokens, provider_name)
+        _handle_image(input_path, question, prompt, json_output, config, actual_resolution, max_tokens, provider_name, jsonl)
     else:
         _handle_video(input_path, question, prompt, json_output, save_observations, transcribe_audio, diarize_audio, force,
                       config, mode, detail, actual_fps, actual_max_frames, actual_resolution, max_tokens, device,
-                      focus_start, focus_end, cue_timestamps, provider_name, segment, raw_frames, ground)
+                      focus_start, focus_end, cue_timestamps, provider_name, segment, raw_frames, ground, stt_provider,
+                      keep_audio, grid, text_anchors, viewer, report, dnn_model, jsonl)
 
 
 def _handle_image(path: Path, question: Optional[str], custom_prompt: Optional[str],
                   json_output: bool, config: dict, resolution: int,
                   override_max_tokens: Optional[int] = None,
-                  provider_name: Optional[str] = None):
+                  provider_name: Optional[str] = None,
+                  jsonl: bool = False):
     """Process a single image."""
+    from core.stream import create_jsonl_writer
+    writer = create_jsonl_writer(jsonl)
+    if writer:
+        writer.emit_start(str(path))
+        writer.emit_probe({"type": "image", "path": str(path)})
     # Load and preprocess
     image = load_image(str(path))
     image = downscale(image, resolution)
@@ -275,15 +314,28 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
                   config: dict, mode: str, detail: str = "balanced",
                   fps: float = 0.5, max_frames: int = 60, resolution: int = 768,
                   override_max_tokens: Optional[int] = None,
-                  whisper_device: str = "auto",
+                   stt_device: str = "auto",
                   focus_start: Optional[float] = None,
                   focus_end: Optional[float] = None,
                   cue_timestamps: Optional[list[float]] = None,
                   provider_name: Optional[str] = None,
                   segment_flag: Optional[bool] = None,
                   raw_frames: bool = False,
-                  ground_query: Optional[str] = None):
+                  ground_query: Optional[str] = None,
+                  stt_provider: str = "parakeet",
+                  keep_audio: bool = False,
+                  generate_grid: bool = False,
+                  text_anchors: bool = False,
+                  generate_viewer: bool = False,
+                  generate_report: bool = False,
+                  dnn_model: str = None,
+                  jsonl: bool = False):
     """Process a video file."""
+    from core.stream import create_jsonl_writer
+    writer = create_jsonl_writer(jsonl)
+    if writer:
+        writer.emit_start(str(path), mode=mode)
+
     # Check cache (stable under openvision_HOME when relative)
     cache_dir = config.get("cache", {}).get("directory", "runs")
     if not Path(cache_dir).is_absolute():
@@ -291,6 +343,7 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
         cache_dir = str(runs_dir(config))
     cache = RunCache(cache_dir)
     key = cache.cache_key(str(path), mode, fps, resolution)
+    mode_config = get_mode_config(config, mode)
 
     if not force and key and cache.has_cached(key):
         cached_dir = cache.get_run(key)
@@ -308,6 +361,8 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
     # Probe video
     log_vram("video_probe")
     video_meta = probe(str(path))
+    if writer:
+        writer.emit_probe(video_meta)
 
     # Detect VFR and color range for smarter sampling
     vfr_info = detect_vfr(str(path))
@@ -367,6 +422,26 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
         else:
             frames = smart_sample(str(path), fps=fps, max_frames=actual_max, max_resolution=resolution, vfr_mode=vfr_mode)
 
+    # Run inline DNN inference if --dnn-model specified
+    if dnn_model and frames:
+        try:
+            from core.dnn_filter import DNNFilterPipeline
+            dnn = DNNFilterPipeline(dnn_model)
+            if dnn.is_available:
+                console.print(f"[dim]Running inline DNN detection: {dnn_model}[/dim]")
+                dnn_results = dnn.extract_with_detection(str(path), max_frames=len(frames))
+                # Merge detection data into frames
+                for dnn_frame in dnn_results:
+                    idx = dnn_frame["frame_index"]
+                    if idx < len(frames):
+                        frames[idx]["detections"] = dnn_frame.get("detections", [])
+                        frames[idx]["frame_path_dnn"] = dnn_frame.get("frame_path")
+                console.print(f"[dim]DNN: processed {len(dnn_results)} frames[/dim]")
+            else:
+                console.print("[yellow]FFmpeg DNN/ONNX Runtime not available, skipping inline inference[/yellow]")
+        except Exception as e:
+            console.print(f"[yellow]DNN filter failed: {e}[/yellow]")
+
     # Transcript-only early return: skip VLM, just run audio processing
     if detail == "transcript" and not frames:
         run_dir = cache.create_run(key, video_meta)
@@ -374,8 +449,8 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
         timeline = []
 
         if transcribe_audio:
-            console.print(f"[dim]Transcribing audio with Whisper ({whisper_device})...[/dim]")
-            whisper = WhisperProvider({"device": whisper_device})
+            console.print(f"[dim]Transcribing audio with {stt_provider.title()} ({stt_device})...[/dim]")
+            whisper = get_provider(stt_provider, {"device": stt_device})
             transcript = whisper.transcribe(str(path))
             if transcript and transcript.segments:
                 console.print(f"[dim]Transcribed {len(transcript.segments)} speech segments[/dim]")
@@ -463,6 +538,16 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
 
     console.print(f"[dim]Extracted {len(frames)} frames for analysis[/dim]")
 
+    # Generate contact sheet if requested
+    if generate_grid and frames:
+        try:
+            from core.contact_sheet import create_contact_sheet
+            grid_path = str(path.parent / f"{path.stem}_contact_sheet.jpg")
+            create_contact_sheet(frames, grid_size=(3, 3), output_path=grid_path)
+            console.print(f"[dim]Contact sheet: {grid_path}[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Contact sheet failed: {e}[/yellow]")
+
     # Extract pinned frames at specific timestamps
     pinned_frames = []
     if cue_timestamps:
@@ -477,6 +562,44 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
                 frames.append(pf)
                 existing_times.add(round(pf["timestamp"], 1))
         frames.sort(key=lambda f: f["timestamp"])
+
+    # Text-anchors: force frames at subtitle-cue timestamps
+    if text_anchors:
+        try:
+            from core.video import extract_at_timestamps
+            # Try to get subtitle timestamps from downloaded subs or captions
+            anchor_times = []
+            # Check for .srt or .vtt files next to the video
+            for ext in [".srt", ".vtt", ".ass"]:
+                sub_file = path.with_suffix(ext)
+                if sub_file.exists():
+                    from core.captions import parse_srt, parse_vtt
+                    content = sub_file.read_text(encoding="utf-8", errors="replace")
+                    if ext == ".srt":
+                        caps = parse_srt(content)
+                    else:
+                        caps = parse_vtt(content)
+                    # Use start time of each cue as an anchor
+                    anchor_times = [c.start for c in caps if c.text.strip()]
+                    break
+            if anchor_times:
+                # Cap to avoid too many frames
+                if len(anchor_times) > 30:
+                    step = len(anchor_times) / 30
+                    anchor_times = [anchor_times[int(i * step)] for i in range(30)]
+                anchor_frames = extract_at_timestamps(str(path), anchor_times, resolution)
+                existing_times = {round(f["timestamp"], 1) for f in frames}
+                added = 0
+                for af in anchor_frames:
+                    if round(af["timestamp"], 1) not in existing_times:
+                        frames.append(af)
+                        existing_times.add(round(af["timestamp"], 1))
+                        added += 1
+                if added:
+                    frames.sort(key=lambda f: f["timestamp"])
+                    console.print(f"[dim]Text-anchors: added {added} frames at subtitle cues[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Text-anchors failed: {e}[/yellow]")
 
     # Warn about sparse scan for long videos
     if duration > 600 and len(frames) < 30:
@@ -493,8 +616,26 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
         fpath = cache.save_frame(run_dir, frame["image"], fname)
         frame_paths.append(str(fpath))
         frame["path"] = str(fpath)
+        if writer:
+            writer.emit_frame(i, frame.get("timestamp", 0), str(fpath), frame.get("detections"))
+
+    # Generate keep/drop report if requested
+    if generate_report and frames:
+        try:
+            from core.report import generate_keep_drop_report
+            report_path = str(run_dir / "report.html")
+            generate_keep_drop_report(
+                frames, list(range(len(frames))),
+                dedup_stats={"total_extracted": len(frames), "used_for_analysis": len(frames)},
+                output_path=report_path,
+                title=f"Frame Report - {path.stem}",
+            )
+            console.print(f"[dim]Report: {report_path}[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Report failed: {e}[/yellow]")
 
     # --- raw-frames mode: skip VLM, return frames + audio timeline ---
+    transcript = None
     if raw_frames:
         from models import RawFrame, TimelineEntry
         raw = [
@@ -536,6 +677,8 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
                 console.print(f"[dim]Audio timeline: {len(transcript.segments)} segments with speaker labels[/dim]")
             console.print("[dim]Ready for vision-capable agent processing.[/dim]")
         return
+
+    from models import TimelineEntry
 
     # Query VLM
     vlm_config = config.get("models", {}).get("vlm", {})
@@ -623,8 +766,8 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
     # Transcribe audio if requested
     transcript = None
     if transcribe_audio:
-        console.print(f"[dim]Transcribing audio with Whisper ({whisper_device})...[/dim]")
-        whisper = WhisperProvider({"device": whisper_device})
+        console.print(f"[dim]Transcribing audio with {stt_provider.title()} ({stt_device})...[/dim]")
+        whisper = get_provider(stt_provider, {"device": stt_device})
         import time as _time
         transcript = whisper.transcribe(str(path))
 
@@ -714,10 +857,41 @@ def _handle_video(path: Path, question: Optional[str], custom_prompt: Optional[s
             for s in transcript.segments
         )
         cache.save_text(run_dir, "transcript.txt", transcript_text)
+        if writer:
+            for seg in transcript.segments:
+                writer.emit_transcript(seg.start, seg.end, seg.text, getattr(seg, "speaker", None))
+
+    # Save full audio if requested
+    if keep_audio:
+        try:
+            from core.audio import save_full_audio
+            audio_out = str(run_dir / "audio.m4a")
+            save_full_audio(str(path), audio_out)
+            console.print(f"[dim]Audio saved: {audio_out}[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Failed to save audio: {e}[/yellow]")
+
+    # Generate HTML viewer if requested
+    if generate_viewer and frames:
+        try:
+            from core.viewer import generate_viewer
+            viewer_path = str(run_dir / "viewer.html")
+            t_segments = transcript.segments if transcript and transcript.segments else None
+            generate_viewer(frames, t_segments, summary, viewer_path, title=path.stem)
+            console.print(f"[dim]Viewer: {viewer_path}[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Viewer failed: {e}[/yellow]")
 
     # Save observation markdown if requested
     if save_observations:
         _save_observation_md(path, result, config, transcript)
+
+    # Emit JSONL summary and done
+    if writer:
+        writer.emit_summary(result.summary, [e.entity for e in result.entities])
+        writer.emit_done({"timeline_entries": len(result.timeline), "entities": len(result.entities),
+                          "has_transcript": transcript is not None and transcript.transcript is not None})
+        writer.flush()
 
     log_vram("observation_complete")
 

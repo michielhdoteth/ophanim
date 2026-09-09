@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from providers.whisper import WhisperProvider
+from providers import get_provider, list_providers
 
 console = Console()
 
@@ -28,30 +28,72 @@ def _safe_print(msg: str):
 
 def transcribe_cmd(
     path: str = typer.Argument(..., help="Path to video file"),
+    provider_name: str = typer.Option("parakeet", "--provider", "-p", help=f"STT provider: {', '.join(list_providers())}"),
     language: str = typer.Option(None, "--language", "-l", help="Language code (e.g., 'en'). Auto-detect if not set."),
-    model: str = typer.Option("base", "--model", "-m", help="Whisper model size: tiny, base, small, medium, large"),
+    model: str = typer.Option("base", "--model", "-m", help="Model size (whisper only, ignored for parakeet)"),
     device: str = typer.Option("auto", "--device", "-d", help="Device: auto, cpu, cuda"),
+    from_time: str = typer.Option(None, "--from", help="Start time (e.g., 1:30, 45, 0:15:00)"),
+    to_time: str = typer.Option(None, "--to", help="End time (e.g., 2:00, 90, 0:20:00)"),
+    keep_audio: bool = typer.Option(False, "--keep-audio", help="Save full soundtrack as audio.m4a"),
+    cookies: str = typer.Option(None, "--cookies", help="Netscape cookie file for authenticated videos"),
+    cookies_from_browser: str = typer.Option(None, "--cookies-from-browser", help="Read cookies from browser (chrome, firefox, edge, safari)"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    jsonl: bool = typer.Option(False, "--jsonl", help="Streaming JSONL output"),
     save_text: bool = typer.Option(False, "--save", help="Save transcript to text file"),
     diarize_audio: bool = typer.Option(False, "--diarize", help="Add speaker labels via diarization"),
     min_speakers: int = typer.Option(None, "--min-speakers", help="Minimum number of speakers"),
     max_speakers: int = typer.Option(None, "--max-speakers", help="Maximum number of speakers"),
 ):
-    """Transcribe audio from a video file using Whisper."""
+    """Transcribe audio from a video file."""
     from core.download import is_url
+    from core.stream import create_jsonl_writer
+    writer = create_jsonl_writer(jsonl)
     input_path = Path(path)
     is_remote = is_url(path)
     if not is_remote and not input_path.exists():
         _safe_print(f"[red]Error:[/red] File not found: {path}")
         raise typer.Exit(code=1)
 
-    _safe_print(f"[dim]Loading Whisper model '{model}' on {device}...[/dim]")
+    if writer:
+        writer.emit_start(path, mode=provider_name)
+
+    _safe_print(f"[dim]Loading {provider_name.title()} model on {device}...[/dim]")
+
+    # Parse time window
+    from core.video import parse_time
+    window_start = parse_time(from_time) if from_time else None
+    window_end = parse_time(to_time) if to_time else None
+    if window_start is not None or window_end is not None:
+        _safe_print(f"[dim]Time window: {_fmt_time(window_start or 0)} - {_fmt_time(window_end or 0)}[/dim]")
 
     config = {
-        "model_size": model,
         "device": device,
     }
-    provider = WhisperProvider(config)
+    if provider_name == "whisper":
+        config["model_size"] = model
+    provider = get_provider(provider_name, config)
+
+    # Resolve cookies
+    cookies_file = cookies
+    if cookies_from_browser and not cookies_file:
+        import tempfile
+        try:
+            import browser_cookie3
+            cj = getattr(browser_cookie3, cookies_from_browser.replace("-", "_").lower())()
+            # Write Netscape cookie file
+            cookie_tmp = tempfile.NamedTemporaryFile(suffix=".txt", delete=False, mode="w")
+            cookie_tmp.write("# Netscape HTTP Cookie File\n")
+            for c in cj:
+                secure = "TRUE" if c.secure else "FALSE"
+                domain = c.domain if c.domain.startswith(".") else "." + c.domain
+                cookie_tmp.write(f"{domain}\tTRUE\t{c.path}\t{secure}\t{int(c.expires or 0)}\t{c.name}\t{c.value}\n")
+            cookie_tmp.close()
+            cookies_file = cookie_tmp.name
+            _safe_print(f"[dim]Loaded cookies from {cookies_from_browser}[/dim]")
+        except ImportError:
+            _safe_print("[yellow]browser-cookie3 not installed. Install with: pip install browser-cookie3[/yellow]")
+        except Exception as e:
+            _safe_print(f"[yellow]Failed to read browser cookies: {e}[/yellow]")
 
     # Download from URL if remote (native yt-dlp into stable downloads dir)
     dl_result = {}
@@ -67,7 +109,7 @@ def transcribe_cmd(
         _safe_print(f"[dim]Downloading from URL into {dl_dir}...[/dim]")
         try:
             dl_result = download_video(
-                path, output_dir=str(dl_dir), audio_only=False, write_subs=True
+                path, output_dir=str(dl_dir), audio_only=False, write_subs=True, cookies_file=cookies_file
             )
             input_path = Path(dl_result["path"])
             _safe_print(f"[dim]Downloaded: {dl_result.get('title', input_path.name)}[/dim]")
@@ -82,7 +124,7 @@ def transcribe_cmd(
             sub_content = Path(dl_result["subs_file"]).read_text(encoding="utf-8", errors="replace")
             caps = parse_vtt(sub_content)
             if caps:
-                from providers.whisper import Transcript, TranscriptSegment
+                from providers.parakeet import Transcript, TranscriptSegment
                 transcript = Transcript(
                     segments=[TranscriptSegment(start=c.start, end=c.end, text=c.text, confidence=1.0) for c in caps],
                     language="en",
@@ -97,6 +139,35 @@ def transcribe_cmd(
     else:
         transcript = None
 
+    # When time window specified, extract audio segment for faster transcription
+    if (window_start is not None or window_end is not None) and transcript is None:
+        try:
+            from core.audio import extract_audio_segment
+            seg_tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            seg_path = seg_tmp.name
+            seg_tmp.close()
+            start_s = window_start or 0
+            end_s = window_end or 999999
+            _safe_print(f"[dim]Extracting audio segment {_fmt_time(start_s)} - {_fmt_time(end_s)}...[/dim]")
+            extract_audio_segment(str(input_path), start_s, end_s, seg_path)
+            t0 = time.time()
+            transcript = provider.transcribe_audio(seg_path, language)
+            elapsed = time.time() - t0
+            _safe_print(f"[dim]Transcription finished in {elapsed:.1f}s[/dim]")
+            # Adjust timestamps to be relative to source video
+            if window_start and transcript.segments:
+                for seg in transcript.segments:
+                    seg.start += window_start
+                    seg.end += window_start
+            if window_end and transcript.segments:
+                transcript.segments = [s for s in transcript.segments if s.start < window_end]
+        except Exception as e:
+            _safe_print(f"[dim]Segment extraction failed ({e}), transcribing full file...[/dim]")
+            transcript = None
+        finally:
+            if os.path.exists(seg_path):
+                os.unlink(seg_path)
+
     # Try existing captions first (faster, no GPU needed)
     if transcript is None:
         try:
@@ -105,13 +176,13 @@ def transcribe_cmd(
                 _safe_print(f"[green]Found embedded captions ({len(captions.segments)} segments)[/green]")
                 transcript = captions
             else:
-                _safe_print("[dim]No embedded captions found, transcribing with Whisper...[/dim]")
+                _safe_print("[dim]No embedded captions found, transcribing...[/dim]")
                 t0 = time.time()
                 transcript = provider.transcribe(str(input_path))
                 elapsed = time.time() - t0
                 _safe_print(f"[dim]Transcription finished in {elapsed:.1f}s[/dim]")
         except Exception as e:
-            _safe_print(f"[dim]Caption extraction failed ({e}), transcribing with Whisper...[/dim]")
+            _safe_print(f"[dim]Caption extraction failed ({e}), transcribing...[/dim]")
             t0 = time.time()
             transcript = provider.transcribe(str(input_path))
             elapsed = time.time() - t0
@@ -120,6 +191,16 @@ def transcribe_cmd(
     if not transcript.segments:
         _safe_print("[yellow]No speech detected in the video audio track.[/yellow]")
         return
+
+    # Filter transcript to time window if specified
+    if (window_start is not None or window_end is not None) and transcript.segments:
+        before = len(transcript.segments)
+        transcript.segments = [
+            s for s in transcript.segments
+            if (window_start is None or s.end >= window_start) and (window_end is None or s.start <= window_end)
+        ]
+        if len(transcript.segments) < before:
+            _safe_print(f"[dim]Filtered to {len(transcript.segments)} segments in time window[/dim]")
 
     # Apply diarization if requested
     if diarize_audio and transcript.segments:
@@ -155,6 +236,14 @@ def transcribe_cmd(
         except Exception as e:
             _safe_print(f"[yellow]Diarization failed: {e}[/yellow]")
 
+    # Emit JSONL segments
+    if writer:
+        for seg in transcript.segments:
+            writer.emit_transcript(seg.start, seg.end, seg.text, getattr(seg, "speaker", None))
+        writer.emit_done({"segments": len(transcript.segments), "language": transcript.language,
+                          "duration": transcript.duration_seconds})
+        writer.flush()
+
     # Build output
     if json_output:
         output = {
@@ -179,6 +268,16 @@ def transcribe_cmd(
         ]
         txt_path.write_text("\n".join(lines), encoding="utf-8")
         _safe_print(f"[green]Transcript saved:[/green] {txt_path}")
+
+    # Keep full audio if requested
+    if keep_audio:
+        try:
+            from core.audio import save_full_audio
+            audio_path = str(input_path.with_name(input_path.stem + "_audio.m4a"))
+            save_full_audio(str(input_path), audio_path)
+            _safe_print(f"[green]Audio saved:[/green] {audio_path}")
+        except Exception as e:
+            _safe_print(f"[yellow]Failed to save audio: {e}[/yellow]")
 
 
 def _display_transcript(transcript):

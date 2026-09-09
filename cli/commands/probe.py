@@ -16,6 +16,7 @@ console = Console()
 def probe_cmd(
     path: str = typer.Argument(..., help="Path to video file", exists=True),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    jsonl: bool = typer.Option(False, "--jsonl", help="Streaming JSONL output"),
     deep: bool = typer.Option(False, "--deep", help="Run VFR detection and color range analysis"),
 ):
     """
@@ -53,7 +54,14 @@ def probe_cmd(
     metadata["estimated_processing_cost"] = cost
     
     result = ProbeResult(**metadata)
-    
+
+    from core.stream import create_jsonl_writer
+    writer = create_jsonl_writer(jsonl)
+    if writer:
+        writer.emit_probe(result.model_dump())
+        writer.emit_done({"type": "probe"})
+        writer.flush()
+
     if json_output:
         console.print(json.dumps(result.model_dump(), indent=2))
     else:

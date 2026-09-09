@@ -1,5 +1,7 @@
-"""openvision status - Show system status."""
+"""openvision status - Show system status and run diagnostic checks."""
 import typer
+import subprocess
+import shutil
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
@@ -17,8 +19,9 @@ console = Console()
 
 def status_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    doctor: bool = typer.Option(False, "--doctor", help="Run full diagnostic checks"),
 ):
-    """Show openvision system status, GPU state, and cache info."""
+    """Show openvision system status, GPU state, cache info. Use --doctor for diagnostics."""
     try:
         config = load_config()
     except FileNotFoundError:
@@ -60,16 +63,16 @@ def status_cmd(
             "downloads": str(dls),
             "runs": str(runs_path),
         }
-        # Add provider health to JSON output
         try:
             detected = ProviderRegistry.detect()
             payload["providers"] = detected
         except Exception:
             payload["providers"] = []
+        if doctor:
+            payload["diagnostics"] = _run_diagnostics(config)
         console.print(json.dumps(payload, indent=2))
     else:
         _display_status(result, runs, safety)
-        # Provider health panel
         _display_provider_health()
         path_table = Table(show_header=False, box=None, title="Data Paths")
         path_table.add_column("Key", style="cyan")
@@ -81,6 +84,10 @@ def status_cmd(
         console.print(path_table)
         obs_count = len(list(obs.glob("*.md")))
         console.print(f"[dim]Saved observations: {obs_count}[/dim]")
+
+        if doctor:
+            console.print()
+            _display_diagnostics(config)
 
 
 def _get_loaded_models(config: dict) -> list[str]:
@@ -94,7 +101,6 @@ def _get_loaded_models(config: dict) -> list[str]:
 
 def _display_status(result: StatusResult, runs: list[dict], safety: dict):
     """Display status in rich format."""
-    # GPU Panel
     gpu_table = Table(show_header=False, box=None)
     gpu_table.add_column("Property", style="cyan")
     gpu_table.add_column("Value")
@@ -119,14 +125,13 @@ def _display_status(result: StatusResult, runs: list[dict], safety: dict):
 
     console.print(Panel(gpu_table, title="[bold cyan]System Status[/bold cyan]"))
 
-    # Cache Panel
     if runs:
         cache_table = Table(title=f"Cached Runs ({len(runs)})")
         cache_table.add_column("Run", style="cyan")
         cache_table.add_column("Date")
         cache_table.add_column("Path")
 
-        for run in runs[:10]:  # Show last 10
+        for run in runs[:10]:
             from datetime import datetime
             created = datetime.fromtimestamp(run["created"]).strftime("%Y-%m-%d %H:%M")
             cache_table.add_row(run["name"][:30], created, run["path"])
@@ -174,3 +179,177 @@ def _display_provider_health():
         provider_table.add_row(name, status_display, url, models_display)
 
     console.print(provider_table)
+
+
+# ---------------------------------------------------------------------------
+# Doctor diagnostics
+# ---------------------------------------------------------------------------
+
+def _check_binary(name: str) -> dict:
+    """Check if a binary is available on PATH."""
+    path = shutil.which(name)
+    version = None
+    if path:
+        try:
+            r = subprocess.run([name, "--version"], capture_output=True, text=True, timeout=10)
+            output = (r.stdout + r.stderr).strip().split("\n")[0][:120]
+            version = output
+        except Exception:
+            version = "installed (version unknown)"
+    return {"name": name, "installed": path is not None, "path": path, "version": version}
+
+
+def _check_python_package(pkg: str) -> dict:
+    """Check if a Python package is importable."""
+    try:
+        mod = __import__(pkg)
+        ver = getattr(mod, "__version__", "unknown")
+        return {"name": pkg, "installed": True, "version": ver}
+    except ImportError:
+        return {"name": pkg, "installed": False, "version": None}
+
+
+def _check_gpu_compute() -> dict:
+    """Check GPU compute capability."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            name = torch.cuda.get_device_name(0)
+            cap = torch.cuda.get_device_capability(0)
+            vram = torch.cuda.get_device_properties(0).total_mem / (1024**3)
+            return {"ok": True, "name": name, "capability": f"{cap[0]}.{cap[1]}", "vram_gb": round(vram, 1)}
+    except Exception:
+        pass
+    # Fallback: try nvidia-smi
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            parts = r.stdout.strip().split(",")
+            return {"ok": True, "name": parts[0].strip(), "vram_gb": round(float(parts[1].strip().split()[0]) / 1024, 1)}
+    except Exception:
+        pass
+    return {"ok": False, "name": "none", "vram_gb": 0}
+
+
+def _check_parakeet_model(config: dict) -> dict:
+    """Check if Parakeet model files exist."""
+    models_dir = Path(config.get("paths", {}).get("models_dir", "models"))
+    if not models_dir.is_absolute():
+        from storage.paths import get_home
+        home = get_home(config)
+        models_dir = home / "models"
+
+    target = models_dir / "parakeet-tdt-0.6b-v3-int8"
+    required = ["model.onnx", "tokens.txt"]
+    present = [f.name for f in target.iterdir()] if target.exists() else []
+    missing = [f for f in required if f not in present]
+    return {
+        "name": "parakeet-tdt-0.6b-v3-int8",
+        "path": str(target),
+        "installed": target.exists() and len(missing) == 0,
+        "present_files": present,
+        "missing_files": missing,
+    }
+
+
+def _run_diagnostics(config: dict) -> list[dict]:
+    """Run all diagnostic checks and return results."""
+    checks = []
+
+    # 1. Binaries
+    for binary in ["ffmpeg", "ffprobe", "yt-dlp"]:
+        checks.append({"category": "binary", **_check_binary(binary)})
+
+    # 2. GPU
+    checks.append({"category": "gpu", **_check_gpu_compute()})
+
+    # 3. Python packages
+    for pkg in ["cv2", "torch", "numpy", "typer", "rich"]:
+        checks.append({"category": "python", **_check_python_package(pkg)})
+
+    # 4. OpenCV 5 engine check
+    try:
+        import cv2
+        ver = cv2.__version__
+        has_new_engine = hasattr(cv2, 'dnn') and hasattr(cv2.dnn, 'ENGINE_AUTO')
+        cuda_count = 0
+        try:
+            cuda_count = cv2.cuda.getCudaEnabledDeviceCount()
+        except Exception:
+            pass
+        checks.append({
+            "category": "opencv",
+            "name": f"opencv {ver}",
+            "installed": True,
+            "version": f"{'new DNN engine' if has_new_engine else 'classic engine'} | CUDA devices: {cuda_count}",
+        })
+    except Exception:
+        checks.append({"category": "opencv", "name": "opencv", "installed": False, "version": "not installed"})
+
+    # 4. STT providers
+    for pkg, label in [("sherpa_onnx", "parakeet"), ("faster_whisper", "faster-whisper"), ("whisper", "openai-whisper")]:
+        checks.append({"category": "stt", "name": label, **_check_python_package(pkg)})
+
+    # 5. Parakeet model
+    checks.append({"category": "model", **_check_parakeet_model(config)})
+
+    # 6. VLM providers
+    try:
+        detected = ProviderRegistry.detect()
+        for p in detected:
+            checks.append({
+                "category": "vlm",
+                "name": p.get("name", "?"),
+                "installed": p.get("status") == "available",
+                "version": ", ".join(p.get("models", [])[:3]),
+            })
+    except Exception as e:
+        checks.append({"category": "vlm", "name": "registry", "installed": False, "version": str(e)[:80]})
+
+    return checks
+
+
+def _display_diagnostics(config: dict):
+    """Display doctor-style diagnostic checks."""
+    checks = _run_diagnostics(config)
+
+    # Group by category
+    categories = {}
+    for c in checks:
+        cat = c.pop("category", "other")
+        categories.setdefault(cat, []).append(c)
+
+    for cat, items in categories.items():
+        table = Table(title=cat.upper(), show_lines=False)
+        table.add_column("Check", style="cyan", min_width=24)
+        table.add_column("Status")
+        table.add_column("Details")
+
+        for item in items:
+            name = item.get("name", "?")
+            installed = item.get("installed", False)
+            version = item.get("version", "")
+            path_val = item.get("path", "")
+            missing = item.get("missing_files", [])
+
+            if installed:
+                status = "[green]OK[/green]"
+            else:
+                status = "[red]MISSING[/red]"
+
+            details = version or path_val or ""
+            if missing:
+                details += f" (missing: {', '.join(missing)})"
+
+            table.add_row(name, status, details)
+
+        console.print(table)
+
+    # Summary
+    total = len(checks)
+    passed = sum(1 for c in checks if c.get("installed", False))
+    if passed == total:
+        console.print(f"\n[green bold]All {total} checks passed.[/green bold]")
+    else:
+        console.print(f"\n[yellow]{passed}/{total} checks passed, {total - passed} issues found.[/yellow]")

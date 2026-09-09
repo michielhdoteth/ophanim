@@ -32,10 +32,16 @@ def ask_cmd(
     mode: str = typer.Option("balanced", "--mode", "-m", help="Search mode: keyframes, scene_changes, dense"),
     max_tokens: int = typer.Option(None, "--max-tokens", help="Override max tokens for VLM response"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    jsonl: bool = typer.Option(False, "--jsonl", help="Streaming JSONL output"),
     provider_name: str = typer.Option(None, "--provider", help="VLM provider: auto, lmstudio, ollama, llamacpp, openai, groq, together, vllm, localai"),
     raw_frames: bool = typer.Option(False, "--raw-frames", help="Skip VLM — return raw frame paths for vision-capable agents"),
 ):
     """Ask a targeted question about video content."""
+    from core.stream import create_jsonl_writer
+    writer = create_jsonl_writer(jsonl)
+    if writer:
+        writer.emit_start(path, mode=question[:80])
+
     input_path = Path(path)
     if not input_path.exists():
         console.print(f"[red]Error:[/red] File not found: {path}")
@@ -176,6 +182,11 @@ def ask_cmd(
         confidence=confidence,
         tokens={"prompt_tokens": total_tokens.prompt_tokens, "completion_tokens": total_tokens.completion_tokens, "reasoning_tokens": total_tokens.reasoning_tokens, "total_tokens": total_tokens.total_tokens},
     )
+
+    if writer:
+        writer.emit_summary(final_answer, [e.get("description", "") for e in evidence])
+        writer.emit_done({"confidence": confidence, "evidence_count": len(evidence)})
+        writer.flush()
 
     if json_output:
         console.print(json.dumps(result.model_dump(), indent=2))
