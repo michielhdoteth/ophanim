@@ -28,6 +28,9 @@ runs/
 memory/
 openvision_test_output.json
 
+# Model files (downloaded on first use)
+models/
+
 # Manim render output
 media/
 *.log
