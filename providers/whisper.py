@@ -76,13 +76,23 @@ class WhisperProvider:
         self._model = None
 
     def _ensure_model(self):
-        """Lazy-load the Whisper model."""
+        """Lazy-load the Whisper model.
+
+        faster-whisper auto-downloads models from Hugging Face Hub on first use.
+        """
         if self._model is None:
-            from faster_whisper import WhisperModel
+            try:
+                from faster_whisper import WhisperModel
+            except ImportError:
+                raise RuntimeError(
+                    "faster-whisper is not installed. Run: pip install faster-whisper"
+                )
+
             logger.info(
                 f"Loading Whisper model '{self.model_size}' on {self.device} "
                 f"(compute={self.compute_type})"
             )
+            # faster-whisper handles model download automatically via HF Hub
             self._model = WhisperModel(
                 self.model_size,
                 device=self.device,

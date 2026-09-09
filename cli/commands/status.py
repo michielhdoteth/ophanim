@@ -68,12 +68,14 @@ def status_cmd(
             payload["providers"] = detected
         except Exception:
             payload["providers"] = []
+        payload["models"] = _get_model_status_list()
         if doctor:
             payload["diagnostics"] = _run_diagnostics(config)
         console.print(json.dumps(payload, indent=2))
     else:
         _display_status(result, runs, safety)
         _display_provider_health()
+        _display_model_status()
         path_table = Table(show_header=False, box=None, title="Data Paths")
         path_table.add_column("Key", style="cyan")
         path_table.add_column("Path")
@@ -179,6 +181,63 @@ def _display_provider_health():
         provider_table.add_row(name, status_display, url, models_display)
 
     console.print(provider_table)
+
+
+# ---------------------------------------------------------------------------
+# Model status
+# ---------------------------------------------------------------------------
+
+def _format_size(size_bytes: int) -> str:
+    """Format bytes as human-readable size."""
+    if size_bytes < 1_000:
+        return f"{size_bytes} B"
+    elif size_bytes < 1_000_000:
+        return f"{size_bytes / 1_000:.1f} KB"
+    elif size_bytes < 1_000_000_000:
+        return f"{size_bytes / 1_000_000:.1f} MB"
+    else:
+        return f"{size_bytes / 1_000_000_000:.1f} GB"
+
+
+def _get_model_status_list() -> list[dict]:
+    """Get model status as a list of dicts (for JSON output)."""
+    try:
+        from core.models import list_all_models
+        return [
+            {
+                "name": m.name,
+                "provider": m.provider,
+                "description": m.description,
+                "installed": m.installed,
+                "size_bytes": m.size_bytes,
+                "path": str(m.path) if m.path else None,
+            }
+            for m in list_all_models()
+        ]
+    except Exception:
+        return []
+
+
+def _display_model_status():
+    """Display installed STT models."""
+    try:
+        from core.models import list_all_models
+        models = list_all_models()
+    except Exception:
+        return
+
+    table = Table(title="STT Models")
+    table.add_column("Model", style="cyan")
+    table.add_column("Provider", style="green")
+    table.add_column("Size", justify="right")
+    table.add_column("Status")
+
+    for m in models:
+        status = "[green]Installed[/green]" if m.installed else "[red]Not installed[/red]"
+        size = _format_size(m.size_bytes)
+        table.add_row(m.name, m.provider, size, status)
+
+    console.print(table)
 
 
 # ---------------------------------------------------------------------------

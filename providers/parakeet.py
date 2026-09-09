@@ -111,9 +111,26 @@ class ParakeetProvider:
         self._recognizer = None
 
     def _ensure_model(self):
-        """Lazy-load the Parakeet model via sherpa-onnx."""
+        """Lazy-load the Parakeet model via sherpa-onnx.
+
+        Auto-downloads the model if not found locally.
+        """
         if self._recognizer is not None:
             return
+
+        # Check if model exists, auto-download if missing
+        required_files = ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]
+        missing = [f for f in required_files if not (self.model_dir / f).exists()]
+        if missing:
+            logger.info(f"Parakeet model not found at {self.model_dir}, downloading...")
+            try:
+                from core.models import download_and_extract_parakeet
+                self.model_dir = download_and_extract_parakeet()
+            except Exception as e:
+                raise FileNotFoundError(
+                    f"Parakeet model not found and auto-download failed: {e}\n"
+                    f"Run 'openvision install' to download the model manually."
+                )
 
         import sherpa_onnx
 
@@ -121,10 +138,6 @@ class ParakeetProvider:
         decoder = str(self.model_dir / "decoder.int8.onnx")
         joiner = str(self.model_dir / "joiner.int8.onnx")
         tokens = str(self.model_dir / "tokens.txt")
-
-        for path in [encoder, decoder, joiner, tokens]:
-            if not Path(path).exists():
-                raise FileNotFoundError(f"Model file not found: {path}")
 
         logger.info(
             f"Loading Parakeet TDT 0.6B v3 on {self.device} "

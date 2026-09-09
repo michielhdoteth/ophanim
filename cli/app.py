@@ -3,7 +3,7 @@ import typer
 import sys
 from pathlib import Path
 from typing import Optional
-from cli.commands import probe, observe, ask, segment, track, status, observations, transcribe, ground, skill
+from cli.commands import probe, observe, ask, segment, track, status, observations, transcribe, ground, skill, install
 from core.errors import OpenVisionError, handle_cli_error
 
 app = typer.Typer(
@@ -59,6 +59,7 @@ app.command(name="observations")(observations.observations_cmd)
 app.command(name="transcribe")(transcribe.transcribe_cmd)
 app.command(name="ground")(ground.ground_cmd)
 app.command(name="skill")(skill.skill_cmd)
+app.add_typer(install.app, name="install")
 
 
 def load_config() -> dict:
