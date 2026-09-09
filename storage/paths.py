@@ -95,6 +95,11 @@ def runs_dir(config: Optional[dict] = None) -> Path:
     return _subpath(config, "runs", "runs")
 
 
+def runs_db_path(config: Optional[dict] = None) -> Path:
+    """Path to the SQLite runs database (runs.db under runs dir)."""
+    return runs_dir(config) / "runs.db"
+
+
 def migrate_from_legacy() -> Optional[Path]:
     """Migrate data from ~/.ophanim to ~/.openvision if it exists.
 
